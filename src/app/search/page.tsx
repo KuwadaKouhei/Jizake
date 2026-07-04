@@ -6,7 +6,7 @@ import { SakeCard } from "@/components/sake-card";
 import { PREFECTURES } from "@/lib/constants/prefectures";
 import { getSearchSakes } from "@/lib/db/queries/sakes";
 import { getTasteTagOptions } from "@/lib/db/queries/tags";
-import { parsePageParam, totalPageCount } from "@/lib/pagination/pagination";
+import { totalPageCount } from "@/lib/pagination/pagination";
 
 import {
   buildSearchCriteria,
@@ -28,8 +28,9 @@ export const metadata: Metadata = {
   description: "日本酒を名前・都道府県・味わいのタグで検索する。",
 };
 
-// 検索結果は履歴投入で内容が変わり得る（T09）ため、時間ベース再検証で配信する。
-export const revalidate = 3600;
+// 検索結果はクエリ依存のため動的レンダリングする（DESIGN §6.1。カタログ系の時間ベース
+// 再検証には乗せない＝同一クエリでも履歴投入 T09 の反映を古いキャッシュで遅らせない）。
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   searchParams: Promise<RawSearchParams>;

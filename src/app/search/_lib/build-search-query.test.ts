@@ -51,17 +51,26 @@ describe("buildSearchCriteria", () => {
     expect(buildSearchCriteria({ tags: "辛口" }).tagNames).toEqual(["辛口"]);
   });
 
-  it("tags は複数指定（配列）を受け取り、トリム・空除去・重複除去する", () => {
+  it("tags は複数指定（配列）を受け取り、トリム・空除去・重複除去・ソートする", () => {
+    // ソート後は UTF-16 コード順（淡 U+6DE1 < 辛 U+8F9B）で決定的になる。
     expect(
       buildSearchCriteria({ tags: ["辛口", " 淡麗 ", "", "辛口"] }).tagNames,
-    ).toEqual(["辛口", "淡麗"]);
+    ).toEqual(["淡麗", "辛口"]);
   });
 
-  it("page を 1 始まりの整数に丸める（不正値は 1）", () => {
+  it("tags は指定順が違っても同じ集合なら同一表現に正規化する（決定性）", () => {
+    const a = buildSearchCriteria({ tags: ["辛口", "淡麗"] }).tagNames;
+    const b = buildSearchCriteria({ tags: ["淡麗", "辛口"] }).tagNames;
+    expect(a).toEqual(b);
+  });
+
+  it("page を 1 始まりの整数に丸め、上限で頭打ちにする（不正値は 1）", () => {
     expect(buildSearchCriteria({ page: "3" }).page).toBe(3);
     for (const bad of ["0", "-1", "2.5", "abc", ""]) {
       expect(buildSearchCriteria({ page: bad }).page).toBe(1);
     }
+    // 巨大 page は上限 10000 に丸める（巨大 OFFSET の DoS を防ぐ）
+    expect(buildSearchCriteria({ page: "999999999" }).page).toBe(10000);
   });
 
   it("同名パラメータの配列（q・prefecture）は先頭要素を採用する", () => {
@@ -81,7 +90,7 @@ describe("buildSearchCriteria", () => {
     expect(criteria).toEqual({
       q: "純米",
       prefectureCode: "15",
-      tagNames: ["辛口", "淡麗"],
+      tagNames: ["淡麗", "辛口"],
       page: 2,
     });
     expect(isEmptyCriteria(criteria)).toBe(false);

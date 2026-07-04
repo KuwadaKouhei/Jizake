@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { parsePageParam } from "@/lib/pagination/pagination";
+
 /**
  * 検索条件の組み立て（URL クエリパラメータ → 検索条件の純関数）。
  *
@@ -41,32 +43,26 @@ const MAX_QUERY_LENGTH = 100;
 // URL 手打ちで過大な AND 条件（EXISTS の連結）を生まないための保険。
 const MAX_TAGS = 20;
 
-/** ?page= の生値を 1 始まりの整数に丸める（不正値は 1）。 */
-function normalizePage(raw: string | string[] | undefined): number {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === undefined || !/^\d+$/.test(value)) {
-    return 1;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return parsed >= 1 ? parsed : 1;
-}
-
-/** 生の文字列/配列を、トリム済み・空/重複除去済みの文字列配列に正規化する。 */
+/**
+ * 生の文字列/配列を、トリム済み・空/重複除去済み・ソート済みの文字列配列に正規化する。
+ *
+ * ソートは味タグを「順序に意味のない集合」として扱うため（`?tags=辛口&tags=淡麗` と
+ * `?tags=淡麗&tags=辛口` を同一表現に寄せる）。これで共有 URL・React.cache キー・
+ * 生成 SQL（EXISTS の alias 順）がすべて決定的になる（CODE レビュー S-2）。
+ */
 function normalizeStringList(raw: string | string[] | undefined): string[] {
   if (raw === undefined) {
     return [];
   }
   const values = Array.isArray(raw) ? raw : [raw];
   const seen = new Set<string>();
-  const result: string[] = [];
   for (const value of values) {
     const trimmed = value.trim();
-    if (trimmed.length > 0 && !seen.has(trimmed)) {
+    if (trimmed.length > 0) {
       seen.add(trimmed);
-      result.push(trimmed);
     }
   }
-  return result;
+  return [...seen].sort();
 }
 
 // 名前キーワード q: 文字列/配列（同名複数指定）を受け、先頭要素をトリム。
@@ -105,10 +101,11 @@ const searchParamsSchema = z.object({
   q: qSchema,
   prefecture: prefectureSchema,
   tags: tagsSchema,
+  // ページ番号の正規化・上限は共有の parsePageParam に一本化する（重複排除。CODE C-1）。
   page: z
     .union([z.string(), z.array(z.string())])
     .optional()
-    .transform(normalizePage),
+    .transform((raw) => parsePageParam(raw)),
 });
 
 /**

@@ -8,9 +8,15 @@
  * src/lib/pagination へ昇格して共有する（§5.3 の「昇格は責務名を付ける」）。
  */
 
+// ページ番号の上限。巨大な ?page= を手打ちされたときの OFFSET 肥大
+// （深いページの全件走査による DoS）を防ぐ境界制限。実データ規模（数千件÷24）に対し
+// 十分広く、悪意ある巨大値だけを弾く（範囲外は呼び出し側で最終ページへ丸められる）。
+const MAX_PAGE = 10_000;
+
 /**
- * ?page= の生値を 1 始まりの整数ページ番号に丸める。
- * 非数・0・負数・小数・NaN・undefined はすべて 1 に丸める（不正入力は先頭ページ扱い）。
+ * ?page= の生値を 1..MAX_PAGE の整数ページ番号に丸める。
+ * 非数・0・負数・小数・NaN・undefined は 1 に、上限超過は MAX_PAGE に丸める
+ * （不正・過大入力でも巨大 OFFSET のクエリを発行させない）。
  */
 export function parsePageParam(raw: string | string[] | undefined): number {
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -22,7 +28,10 @@ export function parsePageParam(raw: string | string[] | undefined): number {
     return 1;
   }
   const parsed = Number.parseInt(value, 10);
-  return parsed >= 1 ? parsed : 1;
+  if (parsed < 1) {
+    return 1;
+  }
+  return Math.min(parsed, MAX_PAGE);
 }
 
 /** 総件数と 1 ページあたり件数から総ページ数を求める（0 件でも最低 1 ページ）。 */

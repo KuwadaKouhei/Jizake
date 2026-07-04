@@ -181,7 +181,12 @@
 >   検索フォームは常に表示。`isEmptyCriteria` は履歴記録（T09）の「空検索は記録しない」判定にも再利用可。
 > - **ページネーションは T06 の基盤を共有**。`_lib/pagination.ts` を `src/lib/pagination/pagination.ts`
 >   へ責務名昇格し、県別一覧（T06）と検索（T07）の 2 機能で共有（機能固有 `_lib` 同士のパス依存を避ける。
->   DIRECTORY_STRUCTURE §5.3）。T06 側の import も更新済み。
+>   DIRECTORY_STRUCTURE §5.3）。T06 側の import も更新済み。page 番号の正規化・上限（DoS 対策）も
+>   `parsePageParam` に一本化。
+> - **検索クエリ `searchSakes` は当初計画の `_lib/search-sakes.ts` を作らず `src/lib/db/queries/sakes.ts`
+>   に集約**（`SakeSummary`・タグ一括取得を県別一覧と共有＝DIR-6 の横断クエリ判定。DESIGN §5.3・
+>   DIRECTORY_STRUCTURE §2 ツリーも実配置に更新。CODE/PHIL レビュー指摘）。タグは `tagIds` でなく
+>   `tagNames`（URL `?tags=` と DATABASE §2.7 filters に統一）、味タグは集合としてソート正規化（決定性）。
 > - 実データ投入は Supabase 実プロジェクト作成後（T02 残作業）。ロジックは PGlite で検証済み。
 
 ### T08: 認証（サインアップ・ログイン・ログアウト）

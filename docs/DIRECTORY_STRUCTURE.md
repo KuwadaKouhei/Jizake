@@ -88,14 +88,14 @@ Jizake/
 │  │  ├─ error.tsx                     # 想定外エラーのバウンダリ（CODING_PHILOSOPHY 原則5）
 │  │  ├─ not-found.tsx
 │  │  ├─ search/                       # ─ 検索機能 ─
-│  │  │  ├─ page.tsx                   # URL クエリパラメータ駆動（決定 D7）
-│  │  │  ├─ _components/               # 検索フォーム・結果一覧・空状態
+│  │  │  ├─ page.tsx                   # URL クエリパラメータ駆動（決定 D7）・GET フォーム＋結果一覧
 │  │  │  ├─ _lib/
 │  │  │  │  ├─ build-search-query.ts   # URLパラメータ→検索条件の純関数（ユニットテスト対象）
-│  │  │  │  ├─ build-search-query.test.ts
-│  │  │  │  └─ search-sakes.ts         # searchSakes(params)（Drizzle クエリ）
+│  │  │  │  └─ build-search-query.test.ts
 │  │  │  └─ _actions/
-│  │  │     └─ record-search.ts        # recordSearch Server Action（未ログイン時 no-op）
+│  │  │     └─ record-search.ts        # recordSearch Server Action（T09。未ログイン時 no-op）
+│  │  │  # 注: 検索クエリ searchSakes は SakeSummary・タグ一括取得を県別一覧と共有するため
+│  │  │  #     _lib/search-sakes.ts を作らず src/lib/db/queries/sakes.ts に集約（DIR-6。T07）
 │  │  ├─ sake/
 │  │  │  └─ [id]/                      # ─ カタログ: 詳細 ─
 │  │  │     ├─ page.tsx
