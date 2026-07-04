@@ -132,7 +132,7 @@
 | 受け入れ条件 | FR-07（選択 UI から一覧に到達） |
 | 依存タスク | T05（sake-card・クエリ基盤）。T07 と並行可 |
 | ブランチ | `feature/T06-prefecture-list` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。① `src/lib/db/queries/sakes.ts` に
 > `selectSakesByPrefecture`（db 注入・テスト用）/`getSakesByPrefecture`（React.cache 公開）を追加し、
