@@ -658,27 +658,58 @@
 >   （自由文 q はフォールバックでは使わず、未知語を URL に載せない安全側の判断）。UI は data-fallback を
 >   `FallbackNotice`（誘導文言＋「検索ページで探す」Link）で描画。コスト上限①・レート制限②の超過時も
 >   同じ data-fallback を LLM を呼ばずに返す（`fallbackStreamResponse`）。
-> - **④ セッション保存（`_lib/persist-session.ts`＋tools.ts）**: **保存タイミング＝proposeSake が
->   検証済みカードを送る時点。粒度＝1 会話 = 1 セッション**（ステートレスで全履歴が来るので、確定提案時に
->   その時点の全会話を chat_sessions 1 行＋chat_messages にまとめて保存）。`proposed_sake_ids` は
->   `validateProposedSakeIds` を通した**検証済み ID のみ**を末尾 assistant メッセージに非正規化（DB-6・
->   CHECK: assistant 限定）。公開関数 `saveConfirmedProposal` は **user_id をセッションから強制**（主防御。
->   引数で受けない）、**匿名は保存しない**（決定 D4）。純関数 `buildPersistableMessages`（UIMessage→保存
->   レコード・提案 ID 付与）と DB 保存 `insertConfirmedSession(db, userId, ...)` を分離してテスト
->   （本人のみ・検証済み ID のみ・提案が空なら保存しない）。保存失敗はストリームに影響させずログのみ
+> - **④ セッション保存（`_lib/persist-session.ts`＋tools.ts＋route.ts。REVIEW 対応で onFinish に移設）**:
+>   **保存タイミング＝streamText の `onFinish`（応答確定時）で 1 リクエストにつき 1 回。粒度＝1 会話 =
+>   1 セッション**。proposeSake の execute は検証済み銘柄をリクエストスコープの `collectedProposals` に
+>   蓄積するだけで保存しない（複数回 proposeSake が呼ばれても chat_sessions は 1 行＝D4 を守り、
+>   レート制限カウントも二重増加しない）。onFinish で `event.text`（確定した最終応答本文＝提案理由）と
+>   蓄積提案を渡し、`after()`（next/server）でレスポンス返却後にバックグラウンド保存（DB I/O をストリーム
+>   経路から外す）。`proposed_sake_ids` は `validateProposedSakeIds` 済みの**検証済み ID のみ・重複排除**して
+>   末尾 assistant に非正規化（DB-6・CHECK: assistant 限定）。in-flight（末尾が user）でも finalAssistantText を
+>   確定 assistant 本文として補うため、保存本文が合成固定文言でなく実際の提案理由になる。公開関数
+>   `saveConfirmedProposal` は **user_id をセッションから強制**（主防御。引数で受けない）、**匿名は保存しない**
+>   （決定 D4）。純関数 `buildPersistableMessages`（UIMessage＋確定応答→保存レコード・重複排除）と DB 保存
+>   `insertConfirmedSession(db, userId, ...)` を分離してテスト。保存失敗はストリームに影響させずログのみ
 >   （履歴記録 T09 と同じ姿勢・握りつぶさない）。
 > - **user_id 二段防御（DESIGN §6.2 / 履歴と同じ姿勢）**: レート制限・保存の公開関数は user_id を引数で
 >   受けず getCurrentUser から強制取得（一段目）。chat_sessions/chat_messages の RLS が二段目（DATABASE §4.2）。
-> - テストは純関数（conversation-guard 6・fallback-search 15・rate-limit の isRateLimited/startOfToday 4・
->   persist の buildPersistableMessages 4）＋ PGlite 統合（rate-limit の countTodaySessions 4〔本人のみ・
->   当日のみ・0 件〕・persist の insertConfirmedSession 3〔本人 user_id・検証済み ID のみ・空提案は保存しない〕）＋
->   tools の保存注入検証（確定提案で保存を呼ぶ・0 件は呼ばない）＋ UI（data-fallback の誘導文言・内部 /search
->   リンク描画）で実施（全 418 テスト。lint 0 警告 / typecheck / format:check / build グリーン。T14 の 384 から +34）。
+> - テストは純関数（conversation-guard 6・fallback-search 16・rate-limit の isRateLimited/startOfToday 4・
+>   persist の buildPersistableMessages 6）＋ PGlite 統合（rate-limit の countTodaySessions 4〔本人のみ・
+>   当日のみ・0 件〕・persist の insertConfirmedSession 4〔本人 user_id・検証済み ID のみ・空提案は保存しない・
+>   1 会話 1 セッション＋重複排除〕）＋ tools の蓄積検証（提案で collectedProposals に蓄積・複数回で蓄積・
+>   0 件は蓄積しない）＋ UI（data-fallback の誘導文言・内部 /search リンク描画）で実施
+>   （全 423 テスト。lint 0 警告 / typecheck / format:check / build グリーン。T14 の 384 から +39）。
 > - **残作業（実 API 疎通。実キー未設定のため未実施）**: `.env.local` に `AI_GATEWAY_API_KEY`＋Supabase 接続情報を
->   設定し、① 実際に 30 秒タイムアウトで onError→data-fallback 導線が出ること ② 実 LLM 往復での確定提案が
->   chat_sessions/chat_messages に保存されること（RLS 実効遮断含む）③ ログインユーザーの 20 会話/日カウントが
->   実 DB で効くこと、を疎通確認する。ロジックは PGlite＋モックで検証済み（TEST_PHILOSOPHY: LLM/実 DB は
->   モック・注入）。E2E（チャット 1 往復・LLM モックエンドポイント）は T16。
+>   設定し、① 実際に 30 秒タイムアウトの AbortError で onError→data-fallback 導線が出ること（AbortError 経路の
+>   フォールバック発火の実挙動確認）② 実 LLM 往復での確定提案が onFinish→after 経由で chat_sessions/chat_messages
+>   に保存されること（確定応答本文が assistant.content に残る・RLS 実効遮断含む）③ ログインユーザーの
+>   20 会話/日カウントが実 DB で効くこと、を疎通確認する。ロジックは PGlite＋モックで検証済み。E2E（チャット
+>   1 往復・LLM モックエンドポイント）は T16。
+>
+> レビュー対応（2026-07-04・4 ペルソナ。Blocker なし。user_id 二段防御・捏造 ID 非保存・フォールバックの
+> オープンリダイレクト対策は「構造的に安全」と高評価）:
+> - **S-1/S-2/S-3（保存を onFinish に移設。コード＋性能）**: proposeSake の execute 内 await 保存を廃止し、
+>   検証済み提案を `collectedProposals` に蓄積 → streamText の `onFinish` で 1 会話 1 セッション保存に変更。
+>   これで (a) proposeSake 複数回でも chat_sessions は 1 行（D4・レート制限カウント二重増加を解消）、
+>   (b) `event.text`（確定応答本文）を保存し合成固定文言を解消、(c) `after()` でストリーム経路から DB I/O を外す、
+>   を一挙に解決。検証済み ID は全 proposeSake 分をマージ後に重複排除。
+> - **思想 S-1（検索条件表現の src/lib 昇格。Rule of Three）**: `SearchCriteria`/`toSearchQueryString`/
+>   `isEmptyCriteria`/`sanitizeCriteria`/`buildSearchCriteria`/`RawSearchParams` を `src/app/search/_lib/
+>   build-search-query.ts` から `src/lib/search-query/index.ts` へ昇格（検索・履歴・チャット fallback の 3 機能が
+>   参照＝DIR-11 の予告トリガ到達）。検索・履歴・チャットの import を新パスへ更新。DIRECTORY_STRUCTURE の
+>   DIR-11・§2 ツリー、DESIGN §2.2/§5.3 を更新。空になった search/_lib を削除。
+> - **コード C-1**: conversation-guard の docstring 自己矛盾（`turns > MAX` ではなく `turns > MAX`）を
+>   `turns >= MAX ではなく turns > MAX` に修正（ロジックは正しく変更なし）。
+> - **SEC S-1（都道府県短縮形の部分一致）**: フォールバックの県抽出を「フルネーム完全一致を優先→無ければ
+>   短縮形」の 2 パスに変更（「京都府」で「東京」を誤検出しない）。短縮形の部分一致は /search 側の
+>   prefectureSchema が JIS コードを再検証するため実害小である旨をコメントに明記。回帰テスト追加。
+> - **性能 S-1（匿名の Auth 往復回避）— 見送り**: cookie 存在チェックで匿名を早期 return する案は、Supabase の
+>   auth cookie 名がプロジェクト依存で実キーなしでは確度を検証できず、`getCurrentUser` は既に React.cache 済み
+>   （保存経路と共有）のため、**実キー投入後に TTFB を計測して判断**する残作業とする。
+> - **Consider C-3（maxDuration とデプロイ環境上限）— デプロイ TODO**: `export const maxDuration=60` は
+>   Vercel Hobby の関数実行時間上限（現状 60 秒）と整合させる想定。プラン/上限が変わる場合は TIMEOUT_MS
+>   （30 秒）との大小関係を保ったまま調整する（タイムアウトが先・関数打ち切りは後）。実デプロイ時に確認。
+> - **見送り（記録のみ・D5 準拠）**: 匿名の IP/KV レート制限・ヒアリングのみ会話のカウント方式変更は乱用観測後（D5）。
 
 ### T16: E2E テスト整備（主要 3 導線）
 

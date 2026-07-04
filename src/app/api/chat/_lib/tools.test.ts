@@ -68,8 +68,8 @@ const REAL_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const REAL_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const FAKE = "00000000-0000-4000-8000-000000000000";
 
-describe("proposeSake（捏造防止の二段目）", () => {
-  it("実在 ID のみを検証済みカードとしてデータパートに載せ、捏造 ID は除外する", async () => {
+describe("proposeSake（捏造防止の二段目・提案の蓄積）", () => {
+  it("実在 ID のみを検証済みカードとしてデータパートに載せ、collectedProposals に蓄積する（捏造は除外）", async () => {
     const { writer, written } = createFakeWriter();
     // validator は実在する REAL_A / REAL_B だけを入力順で返す（FAKE は落とす）フェイク。
     const validateProposedSakeIds = vi.fn(async (ids: readonly string[]) => {
@@ -81,19 +81,13 @@ describe("proposeSake（捏造防止の二段目）", () => {
         .map((id) => existing.get(id))
         .filter((s): s is SakeSummary => s !== undefined);
     });
-    const saveConfirmedProposal =
-      vi.fn<
-        (
-          messages: readonly ChatUIMessage[],
-          verified: readonly SakeSummary[],
-        ) => Promise<void>
-      >();
+    const collectedProposals: SakeSummary[] = [];
 
     const tools = createChatTools({
       writer,
       retrieve: vi.fn(),
       validateProposedSakeIds,
-      saveConfirmedProposal,
+      collectedProposals,
     });
 
     const result = await tools.proposeSake.execute!(
@@ -125,22 +119,53 @@ describe("proposeSake（捏造防止の二段目）", () => {
     expect(part.type).toBe(PROPOSED_SAKES_DATA_TYPE);
     expect(part.data.sakes.map((s) => s.id)).toEqual([REAL_A, REAL_B]);
 
-    // 確定提案が出たら検証済みカードとともにセッション保存を呼ぶ（T15 ④・ログイン時のみ）。
-    expect(saveConfirmedProposal).toHaveBeenCalledTimes(1);
-    const savedSakes = saveConfirmedProposal.mock.calls[0]![1];
-    expect(savedSakes.map((s) => s.id)).toEqual([REAL_A, REAL_B]);
+    // 保存は execute では行わず、検証済み銘柄を蓄積するだけ（保存は onFinish で 1 回）。
+    expect(collectedProposals.map((s) => s.id)).toEqual([REAL_A, REAL_B]);
   });
 
-  it("全提案が捏造（検証で 0 件）ならデータパートを書かず、保存もせず proposedCount 0 を返す", async () => {
-    const { writer, written } = createFakeWriter();
-    const validateProposedSakeIds = vi.fn(async () => [] as SakeSummary[]);
-    const saveConfirmedProposal = vi.fn(async () => {});
+  it("proposeSake を複数回呼ぶと検証済み提案が蓄積される（onFinish 側で 1 セッションにまとめる）", async () => {
+    const { writer } = createFakeWriter();
+    const validateProposedSakeIds = vi.fn(async (ids: readonly string[]) => {
+      const existing = new Map([
+        [REAL_A, makeSummary(REAL_A, "獺祭")],
+        [REAL_B, makeSummary(REAL_B, "而今")],
+      ]);
+      return ids
+        .map((id) => existing.get(id))
+        .filter((s): s is SakeSummary => s !== undefined);
+    });
+    const collectedProposals: SakeSummary[] = [];
 
     const tools = createChatTools({
       writer,
       retrieve: vi.fn(),
       validateProposedSakeIds,
-      saveConfirmedProposal,
+      collectedProposals,
+    });
+
+    await tools.proposeSake.execute!(
+      { proposals: [{ sakeId: REAL_A, reason: "1回目" }] },
+      toolOptions,
+    );
+    await tools.proposeSake.execute!(
+      { proposals: [{ sakeId: REAL_B, reason: "2回目" }] },
+      toolOptions,
+    );
+
+    // 2 回分がすべて蓄積される（保存側で重複排除・1 セッション化する前提）。
+    expect(collectedProposals.map((s) => s.id)).toEqual([REAL_A, REAL_B]);
+  });
+
+  it("全提案が捏造（検証で 0 件）ならデータパートを書かず、蓄積もせず proposedCount 0 を返す", async () => {
+    const { writer, written } = createFakeWriter();
+    const validateProposedSakeIds = vi.fn(async () => [] as SakeSummary[]);
+    const collectedProposals: SakeSummary[] = [];
+
+    const tools = createChatTools({
+      writer,
+      retrieve: vi.fn(),
+      validateProposedSakeIds,
+      collectedProposals,
     });
 
     const result = await tools.proposeSake.execute!(
@@ -151,8 +176,8 @@ describe("proposeSake（捏造防止の二段目）", () => {
     expect(result).toEqual({ proposedCount: 0 });
     // 0 件なら空のカードデータを載せない（UI で「提案なし」の扱いにできる）。
     expect(written).toHaveLength(0);
-    // 確定提案が無い（0 件）なら保存も呼ばない（決定 D4: 確定提案のみ保存）。
-    expect(saveConfirmedProposal).not.toHaveBeenCalled();
+    // 確定提案が無い（0 件）なら蓄積もしない（決定 D4: 確定提案のみ保存）。
+    expect(collectedProposals).toHaveLength(0);
   });
 });
 
@@ -198,7 +223,6 @@ describe("searchSake（retriever を呼ぶ）", () => {
       writer,
       retrieve,
       validateProposedSakeIds: vi.fn(),
-      saveConfirmedProposal: vi.fn(),
     });
 
     const result = (await tools.searchSake.execute!(
@@ -246,7 +270,6 @@ describe("searchSake（retriever を呼ぶ）", () => {
       writer,
       retrieve,
       validateProposedSakeIds: vi.fn(),
-      saveConfirmedProposal: vi.fn(),
     });
 
     const result = (await tools.searchSake.execute!(

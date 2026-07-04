@@ -88,6 +88,11 @@ describe("extractCriteriaFromMessages", () => {
     expect(criteria.prefectureCode).toBe("15");
   });
 
+  it("フルネーム一致を短縮形より優先する（京都府は京都=26、東京の部分一致に流れない）", () => {
+    const criteria = extractCriteriaFromMessages([userMsg("京都府のお酒")]);
+    expect(criteria.prefectureCode).toBe("26");
+  });
+
   it("条件が無ければ tagNames 空・prefectureCode undefined", () => {
     const criteria = extractCriteriaFromMessages([userMsg("こんにちは")]);
     expect(criteria.tagNames).toEqual([]);

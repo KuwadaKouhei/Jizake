@@ -6,16 +6,19 @@ import {
   streamText,
   gateway,
 } from "ai";
+import { after } from "next/server";
 import { z } from "zod";
 
 import { CHAT_MODEL_ID } from "@/lib/ai/models";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import type { SakeSummary } from "@/lib/db/queries/sakes";
 
 import {
   exceedsConversationLimit,
   TURN_LIMIT_MESSAGE,
 } from "./_lib/conversation-guard";
 import { buildFallbackSearchHref } from "./_lib/fallback-search";
+import { saveConfirmedProposal } from "./_lib/persist-session";
 import { isChatRateLimited, RATE_LIMIT_MESSAGE } from "./_lib/rate-limit";
 import { stripAssistantDataParts } from "./_lib/strip-data-parts";
 import {
@@ -147,6 +150,10 @@ export async function POST(request: Request): Promise<Response> {
 
   const stream = createUIMessageStream<ChatUIMessage>({
     execute: async ({ writer }) => {
+      // 確定提案の蓄積先（リクエストスコープ。proposeSake が複数回呼ばれても保存は onFinish の
+      // 1 回だけにするための箱。REVIEW T15 S-1/S-2）。
+      const collectedProposals: SakeSummary[] = [];
+
       const result = streamText({
         model: gateway(CHAT_MODEL_ID),
         system: CHAT_SYSTEM_PROMPT,
@@ -156,9 +163,9 @@ export async function POST(request: Request): Promise<Response> {
         // タイムアウト③（DESIGN §6.4）: 30 秒で LLM 呼び出しを中断する。中断は onError で
         // ハンドリングし、UI にはフォールバック導線（下）が届く。
         abortSignal: AbortSignal.timeout(TIMEOUT_MS),
-        // proposeSake が検証済みカードを writer 経由でデータパートに載せる（捏造防止の要）。
-        // messages を渡し、確定提案時に chat_sessions へ保存する（T15 ④・ログイン時のみ）。
-        tools: createChatTools({ writer, messages }),
+        // proposeSake が検証済みカードを writer 経由でデータパートに載せ、検証済み銘柄を
+        // collectedProposals に蓄積する（保存は下の onFinish で 1 回。捏造防止の要は不変）。
+        tools: createChatTools({ writer, collectedProposals }),
         // searchSake→proposeSake のツール往復を許可（1 ステップでは提案まで到達しない）。
         stopWhen: stepCountIs(MAX_STEPS),
         // タイムアウト/障害時③: エラーパートに加え、ヒアリング内容から組み立てた検索誘導を送る。
@@ -171,6 +178,17 @@ export async function POST(request: Request): Promise<Response> {
                 "ただいまチャットが混み合っています。以下の検索から日本酒をお探しいただけます。",
               searchHref: buildFallbackSearchHref(messages),
             },
+          });
+        },
+        // 応答確定時④（REVIEW T15 S-1/S-2/S-3）: 確定提案が 1 件以上あれば 1 会話 1 セッションで
+        // 保存する。event.text は確定した最終応答本文（提案理由）。DB I/O はストリームをブロック
+        // しないよう after() でレスポンス返却後に実行する（サーバレスで完遂させる。性能 S-3）。
+        // saveConfirmedProposal 内でログイン判定（匿名は no-op）・検証済み ID の重複排除を行う。
+        onFinish({ text }) {
+          if (collectedProposals.length === 0) return;
+          const proposals = collectedProposals.slice();
+          after(async () => {
+            await saveConfirmedProposal(messages, proposals, text);
           });
         },
       });

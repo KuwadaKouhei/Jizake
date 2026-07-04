@@ -1,8 +1,5 @@
-import {
-  type SearchCriteria,
-  toSearchQueryString,
-} from "@/app/search/_lib/build-search-query";
 import { PREFECTURES } from "@/lib/constants/prefectures";
+import { type SearchCriteria, toSearchQueryString } from "@/lib/search-query";
 
 import type { ChatUIMessage } from "./tools";
 
@@ -67,7 +64,13 @@ export function collectUserText(messages: readonly ChatUIMessage[]): string {
  *
  * - 味タグ: 既知語彙（KNOWN_TASTE_TAGS）に完全一致で会話文に含まれるものを採用（AND 絞り込み）。
  * - 都道府県: 県名（PREFECTURES の name。「県/府/都」抜きの短縮形も許容）に一致した最初の 1 件のコード。
+ *   **フルネーム一致を短縮形より優先**する（2 パス。例: 会話に「京都府」があれば、短縮「京都」の
+ *   部分一致で「東京都」の短縮「東京」を先に拾う等の誤検出を避ける）。
  * - q（自由文）: フォールバックでは使わない（未知語をそのまま URL に載せない安全側の判断）。
+ *
+ * SEC 注記（REVIEW T15 SEC S-1）: 短縮形マッチは部分一致のため誤プリフィルの余地があるが、
+ * ここで組む URL は内部 /search に渡され、/search 側の Zod（prefectureSchema が JIS コードを
+ * 再検証）で最終的に再検証・不正値は無視されるため実害は小さい（プリフィルの利便性を優先し許容）。
  *
  * 何も抽出できなければ tagNames=[] / prefectureCode=undefined になり、呼び出し側は素の /search へ誘導する。
  */
@@ -84,16 +87,16 @@ export function extractCriteriaFromMessages(
     }
   }
 
-  let prefectureCode: string | undefined;
-  for (const prefecture of PREFECTURES) {
-    // 県名フル（例: 山口県）または語尾を落とした短縮形（例: 山口）での一致を許容する。
-    const shortName = prefecture.name.replace(/[都道府県]$/u, "");
-    if (
-      text.includes(prefecture.name) ||
-      (shortName.length >= 2 && text.includes(shortName))
-    ) {
-      prefectureCode = prefecture.code;
-      break;
+  // 1 パス目: フルネーム完全一致を優先（誤検出しにくい）。
+  let prefectureCode = PREFECTURES.find((p) => text.includes(p.name))?.code;
+  // 2 パス目: フルネームで取れなければ短縮形（県/府/都 抜き）で拾う。
+  if (prefectureCode === undefined) {
+    for (const prefecture of PREFECTURES) {
+      const shortName = prefecture.name.replace(/[都道府県]$/u, "");
+      if (shortName.length >= 2 && text.includes(shortName)) {
+        prefectureCode = prefecture.code;
+        break;
+      }
     }
   }
 

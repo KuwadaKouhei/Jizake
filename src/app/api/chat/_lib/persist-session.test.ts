@@ -120,15 +120,42 @@ describe("buildPersistableMessages（純関数）", () => {
     );
     expect(records.every((r) => r.proposedSakeIds === undefined)).toBe(true);
   });
+
+  it("in-flight（末尾が user）でも finalAssistantText を確定 assistant 本文として補い提案理由を残す", () => {
+    // ステートレスで、確定した assistant 応答はまだ入力 messages に無い（末尾は user）。
+    const records = buildPersistableMessages(
+      [userMsg("辛口が好き")],
+      [SAKE_1],
+      "こちらの獺祭がおすすめです。華やかな香りが特長です。",
+    );
+    expect(records.map((r) => r.role)).toEqual(["user", "assistant"]);
+    // 合成固定文言「（提案）」ではなく、確定した応答本文が入る。
+    expect(records[1].content).toBe(
+      "こちらの獺祭がおすすめです。華やかな香りが特長です。",
+    );
+    expect(records[1].proposedSakeIds).toEqual([SAKE_1]);
+  });
+
+  it("提案 ID の重複を排除して末尾 assistant に付ける（proposeSake 複数回のマージ想定）", () => {
+    const records = buildPersistableMessages(
+      [userMsg("辛口")],
+      [SAKE_1, SAKE_2, SAKE_1],
+      "おすすめです",
+    );
+    const assistant = records[records.length - 1];
+    expect(assistant.proposedSakeIds).toEqual([SAKE_1, SAKE_2]);
+  });
 });
 
 describe("insertConfirmedSession（PGlite）", () => {
-  it("会話と検証済み提案 ID を本人の user_id で保存する", async () => {
+  it("会話と検証済み提案 ID を本人の user_id で保存する（確定応答本文が assistant に残る）", async () => {
+    // in-flight を反映: 入力履歴の末尾は user、確定応答は finalAssistantText で渡す。
     await insertConfirmedSession(
       orm,
       USER_A,
-      [userMsg("辛口が好き"), assistantMsg("こちらはいかが")],
+      [userMsg("辛口が好き")],
       [SAKE_1, SAKE_2],
+      "こちらの2本がおすすめです。",
     );
 
     const sessions = await orm
@@ -144,6 +171,8 @@ describe("insertConfirmedSession（PGlite）", () => {
     expect(messages).toHaveLength(2);
 
     const assistant = messages.find((m) => m.role === "assistant");
+    // 合成固定文言でなく、確定した応答本文（提案理由）が保存される。
+    expect(assistant?.content).toBe("こちらの2本がおすすめです。");
     expect(assistant?.proposedSakeIds).toEqual([SAKE_1, SAKE_2]);
     const user = messages.find((m) => m.role === "user");
     expect(user?.proposedSakeIds).toBeNull();
@@ -165,5 +194,26 @@ describe("insertConfirmedSession（PGlite）", () => {
     const sessions = await orm.select().from(schema.chatSessions);
     expect(sessions).toHaveLength(1);
     expect(sessions[0].userId).toBe(USER_A);
+  });
+
+  it("1 回の保存で chat_sessions は 1 行（1 会話 1 セッション・重複 ID はマージ）", async () => {
+    // proposeSake 複数回分の検証済み ID（重複含む）を 1 回の保存にまとめて渡す想定。
+    await insertConfirmedSession(
+      orm,
+      USER_A,
+      [userMsg("辛口")],
+      [SAKE_1, SAKE_2, SAKE_1],
+      "おすすめです",
+    );
+    const sessions = await orm.select().from(schema.chatSessions);
+    expect(sessions).toHaveLength(1);
+
+    const messages = await orm
+      .select()
+      .from(schema.chatMessages)
+      .where(eq(schema.chatMessages.sessionId, sessions[0].id));
+    const assistant = messages.find((m) => m.role === "assistant");
+    // 重複排除された ID が 1 つの assistant に付く。
+    expect(assistant?.proposedSakeIds).toEqual([SAKE_1, SAKE_2]);
   });
 });

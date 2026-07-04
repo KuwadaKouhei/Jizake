@@ -132,7 +132,7 @@ seed-data/                   # 説明文・種別・読み仮名・価格帯の 
 | 責務 | 名前（部分一致）× 都道府県 × 味タグの複合検索（FR-06） |
 | 実装 | 検索条件は **URL クエリパラメータ**（`/search?q=&pref=&tags=`）で表現し、Server Component が読み取って検索実行。共有可能な URL・ブラウザバック対応・SSR を一挙に満たす |
 | クエリ | 名前: `name ILIKE` ＋ `reading ILIKE`（読み仮名列、表記ゆれ対策）。都道府県: 蔵元 JOIN。味: タグ JOIN の EXISTS。複合は AND 結合 |
-| 検索条件の組み立て | `_lib/build-search-query.ts` に純関数として分離（ユニットテスト対象、TEST_PHILOSOPHY） |
+| 検索条件の組み立て | URL⇔条件の純関数として分離（ユニットテスト対象、TEST_PHILOSOPHY）。T15 で `src/lib/search-query/` へ昇格（検索・履歴・チャット fallback の 3 機能共用。DIR-11） |
 | 0件時 | 空状態メッセージ＋条件緩和の導線（タグを外すリンク） |
 | 拡張パス | 遅くなったら pg_trgm の GIN インデックスを追加。検索関数のシグネチャは変えない |
 
@@ -386,7 +386,7 @@ FR-01 受け入れ条件の「一覧・詳細 API で取得できる」は「サ
 ### 5.3 主要インターフェース（シグネチャ）
 
 ```ts
-// 検索（条件組み立ての純関数は src/app/search/_lib、クエリは src/lib/db/queries/sakes.ts）
+// 検索（URL⇔条件の純関数は src/lib/search-query〔T15 昇格〕、クエリは src/lib/db/queries/sakes.ts）
 // 実装では SakeSummary/タグ一括取得を県別一覧と共有するためクエリを db/queries に集約し、
 // タグは tagIds ではなく tagNames（URL 設計 ?tags=辛口・DATABASE §2.7 の filters と統一）、
 // 返り値は総件数つき SearchSakesPage（ページャ）に変更（T07 実装。CODE レビュー S-3）。

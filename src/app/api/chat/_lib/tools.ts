@@ -6,8 +6,6 @@ import type { SakeSummary } from "@/lib/db/queries/sakes";
 import { retrieve as defaultRetrieve } from "@/lib/rag/retriever";
 import { validateProposedSakeIds as defaultValidateProposedSakeIds } from "@/lib/rag/validate-proposed";
 
-import { saveConfirmedProposal as defaultSaveConfirmedProposal } from "./persist-session";
-
 /**
  * RAG チャットの generator が使うツール定義（DESIGN §2.6・TASKS T14 ②）。
  *
@@ -148,23 +146,22 @@ export type RetrieveFn = typeof defaultRetrieve;
 /** DB 存在検証の注入口（本番は validateProposedSakeIds、テストはフェイク）。 */
 export type ValidateProposedSakeIdsFn = typeof defaultValidateProposedSakeIds;
 
-/** 確定提案セッション保存の注入口（本番は saveConfirmedProposal、テストはフェイク）。 */
-export type SaveConfirmedProposalFn = typeof defaultSaveConfirmedProposal;
-
 export type CreateChatToolsDeps = {
   /** 検証済みカードのデータパートを書き込むストリームライタ。 */
   writer: UIMessageStreamWriter<ChatUIMessage>;
   /**
-   * 保存対象の会話履歴（このリクエストで受け取った全メッセージ。ステートレスで毎回全履歴が来る）。
-   * proposeSake が確定提案を送る時点で、この履歴＋検証済み ID を chat_sessions に保存する（T15 ④）。
+   * 確定提案の蓄積先（リクエストスコープの配列。REVIEW T15 S-1/S-2）。
+   *
+   * proposeSake が検証済みカードを送るたびに、その検証済み銘柄をここへ push する（保存はしない）。
+   * DB 保存は route.ts の streamText onFinish で **1 リクエストにつき 1 回だけ**行う
+   * （proposeSake が複数回呼ばれても chat_sessions は 1 行＝1 会話 1 セッション・決定 D4 を守る）。
+   * 省略時は蓄積しない（テストで蓄積を見ないケース）。
    */
-  messages?: readonly ChatUIMessage[];
+  collectedProposals?: SakeSummary[];
   /** ハイブリッド検索（既定は本番 retriever）。 */
   retrieve?: RetrieveFn;
   /** 提案 ID の DB 存在検証（既定は本番 validateProposedSakeIds）。 */
   validateProposedSakeIds?: ValidateProposedSakeIdsFn;
-  /** 確定提案の DB 保存（既定は本番 saveConfirmedProposal。ログイン時のみ・匿名は no-op）。 */
-  saveConfirmedProposal?: SaveConfirmedProposalFn;
 };
 
 /**
@@ -176,10 +173,9 @@ export type CreateChatToolsDeps = {
  */
 export function createChatTools({
   writer,
-  messages = [],
+  collectedProposals,
   retrieve = defaultRetrieve,
   validateProposedSakeIds = defaultValidateProposedSakeIds,
-  saveConfirmedProposal = defaultSaveConfirmedProposal,
 }: CreateChatToolsDeps) {
   return {
     searchSake: tool({
@@ -216,17 +212,17 @@ export function createChatTools({
         // 捏造防止の二段目: DB 存在検証で実在銘柄のみに絞る（存在しない ID は除外）。
         const verified = await validateProposedSakeIds(ids);
 
-        // 検証済みカードをデータパートとしてストリームに載せる（UI は sake-card で描画）。
+        // 検証済みカードをデータパートとしてストリームに載せる（UI は sake-card で描画。先行）。
         if (verified.length > 0) {
           writer.write({
             type: PROPOSED_SAKES_DATA_TYPE,
             data: { sakes: verified },
           });
 
-          // 確定提案セッションの保存（T15 ④・決定 D4）: ログインユーザーの確定提案のみ
-          // chat_sessions/chat_messages へ検証済み ID とともに保存する。匿名は no-op。
-          // 保存失敗は応答（ストリーム）に影響させない（saveConfirmedProposal がログのみで吸収）。
-          await saveConfirmedProposal(messages, verified);
+          // 確定提案をリクエストスコープに蓄積するだけ（保存は onFinish で 1 回。REVIEW T15 S-1/S-2）。
+          // ここで保存すると proposeSake 複数回でセッションが複数行になり D4「1 会話 1 セッション」が
+          // 破れ、in-flight の assistant 本文が未確定になる。保存の DB I/O もストリーム経路から外す。
+          collectedProposals?.push(...verified);
         }
 
         // LLM には検証を通った件数だけを返す（0 件なら条件緩和を促すため 0 を渡す）。

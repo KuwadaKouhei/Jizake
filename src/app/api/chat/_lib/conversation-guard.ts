@@ -41,8 +41,8 @@ export function countUserTurns(messages: readonly ChatUIMessage[]): number {
 /**
  * 会話往復数が上限を超えているか（純関数）。
  *
- * 上限「以上」で超過扱いにする（MAX_CONVERSATION_TURNS 回目の user 発話までは応答し、
- * それを超える 11 回目の送信で誘導へ倒す）。`turns > MAX` ではなく `turns > MAX` を使い、
+ * 上限「超過」で誘導へ倒す（MAX_CONVERSATION_TURNS 回目の user 発話までは応答し、
+ * それを超える 11 回目の送信で誘導へ倒す）。`turns >= MAX` ではなく `turns > MAX` を使い、
  * ちょうど上限回までは会話を続けられるようにする。
  */
 export function exceedsConversationLimit(
