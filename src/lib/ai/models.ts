@@ -20,3 +20,15 @@ export const EMBEDDING_MODEL_ID = "openai/text-embedding-3-small";
  * 格納前に検出するためのガードにも使う。
  */
 export const EMBEDDING_DIMENSIONS = 1536;
+
+/**
+ * RAG チャットの generator（会話・ツール呼び出し）に使う LLM（TECH_STACK §5・DESIGN §2.6）。
+ *
+ * Claude Haiku 4.5 を AI Gateway の `provider/model` 形式で指定する。モデルの差し替え・
+ * プロバイダ障害時の切替（DESIGN §6.4）はこの定数変更だけで行う（DIRECTORY_STRUCTURE §5.1）。
+ *
+ * TODO（実キー投入後に確認）: AI Gateway 上の正確なモデル ID は Gateway の
+ * モデルカタログで確定させる（本値 "anthropic/claude-haiku-4.5" は TECH_STACK §5 の
+ * 表記に合わせた想定値。疎通確認で誤りがあればこの 1 箇所を修正する）。
+ */
+export const CHAT_MODEL_ID = "anthropic/claude-haiku-4.5";
