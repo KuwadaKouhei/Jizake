@@ -83,6 +83,23 @@ describe("Home（ホームの推薦表示）", () => {
     expect(recommend).toHaveBeenCalledWith({ userId: "u1", limit: 6 });
   });
 
+  it("ログイン済みでも中身が全て人気（フォールバック）なら見出しを『人気の日本酒』に倒す", async () => {
+    // 履歴しきい値未満のログインユーザー: reason が全て popular。透明性のため見出しを
+    // 「あなたへのおすすめ」と偽らない（REVIEW T10 PHIL S-2）。ログイン誘導は出さない。
+    getCurrentUser.mockResolvedValue({ id: "u1", email: null });
+    recommend.mockResolvedValue([
+      recommended("d3333333-3333-4333-8333-333333333333", "人気酒", {
+        kind: "popular",
+      }),
+    ]);
+    const doc = await render();
+
+    expect(doc.body.textContent).toContain("人気の日本酒");
+    expect(doc.body.textContent).not.toContain("あなたへのおすすめ");
+    // ログイン済みなのでログイン誘導は出さない。
+    expect(doc.querySelector('a[href="/login"]')).toBeNull();
+  });
+
   it("推薦が空なら空状態と探索導線を出す", async () => {
     getCurrentUser.mockResolvedValue(null);
     recommend.mockResolvedValue([]);

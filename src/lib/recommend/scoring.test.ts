@@ -5,7 +5,9 @@ import {
   buildPreferenceProfile,
   scoreCandidates,
   timeDecay,
+  truncateProfileTags,
   type HistoryEvent,
+  type PreferenceProfile,
   type ScoreCandidate,
   type ScoringWeights,
 } from "./scoring";
@@ -180,5 +182,48 @@ describe("scoreCandidates", () => {
       new Set(),
     );
     expect(result.map((r) => r.sakeId)).toEqual(["a", "z"]);
+  });
+});
+
+describe("truncateProfileTags", () => {
+  function profileOf(tags: [string, number][]): PreferenceProfile {
+    return { tags: new Map(tags), prefectures: new Map([["35", 5]]) };
+  }
+
+  it("タグ数が上限以下なら元のプロファイルをそのまま返す", () => {
+    const profile = profileOf([
+      ["辛口", 3],
+      ["淡麗", 1],
+    ]);
+    expect(truncateProfileTags(profile, 5)).toBe(profile);
+  });
+
+  it("重み降順で上位 K 件のタグに絞る（都道府県は保持）", () => {
+    const profile = profileOf([
+      ["辛口", 3],
+      ["淡麗", 5],
+      ["華やか", 1],
+    ]);
+    const truncated = truncateProfileTags(profile, 2);
+    expect([...truncated.tags.keys()].sort()).toEqual(["淡麗", "辛口"]);
+    expect(truncated.tags.has("華やか")).toBe(false);
+    // 都道府県は絞らない。
+    expect(truncated.prefectures.get("35")).toBe(5);
+  });
+
+  it("同点タグは名前昇順で決定的に選ぶ", () => {
+    const profile = profileOf([
+      ["b", 1],
+      ["a", 1],
+      ["c", 1],
+    ]);
+    const truncated = truncateProfileTags(profile, 2);
+    expect([...truncated.tags.keys()]).toEqual(["a", "b"]);
+  });
+
+  it("maxTags=0 はタグを空にする（都道府県のみ残る）", () => {
+    const truncated = truncateProfileTags(profileOf([["辛口", 3]]), 0);
+    expect(truncated.tags.size).toBe(0);
+    expect(truncated.prefectures.size).toBe(1);
   });
 });

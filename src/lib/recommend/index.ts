@@ -20,6 +20,11 @@ export type {
  *
  * オンデマンド計算（事前バッチ・キャッシュを持たない。DESIGN §2.5・決定 D6）。
  */
+
+// 公開 IF で受ける件数の上限（将来の呼び出しミス・過大要求への耐性。REVIEW T10 SEC C-1）。
+const MAX_LIMIT = 50;
+
 export function recommend(input: RecommendInput): Promise<RecommendedSake[]> {
-  return recommendRuleBased(getDb(), input);
+  const limit = Math.min(Math.max(0, input.limit), MAX_LIMIT);
+  return recommendRuleBased(getDb(), { userId: input.userId, limit });
 }

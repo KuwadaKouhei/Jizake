@@ -32,8 +32,13 @@ export default async function Home() {
     limit: HOME_RECOMMEND_LIMIT,
   });
 
-  // ログインしていれば履歴ベース枠として、未ログインなら人気ランキング枠として見出しを出し分ける。
-  const heading = user ? "あなたへのおすすめ" : "人気の日本酒";
+  // 見出しは「実態」に合わせる（REVIEW T10 PHIL S-2 の透明性）: ログイン済みでも中身が全て
+  // フォールバック（reason=popular＝履歴しきい値未満）なら「あなたへのおすすめ」と偽らず
+  // 「人気の日本酒」に倒す。履歴ベースの推薦が 1 件でもあればパーソナライズ枠として見せる。
+  const hasPersonalized = recommendations.some(
+    (item) => item.reason.kind === "history",
+  );
+  const heading = hasPersonalized ? "あなたへのおすすめ" : "人気の日本酒";
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">

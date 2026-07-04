@@ -117,6 +117,30 @@ export function buildPreferenceProfile(
   return { tags, prefectures };
 }
 
+/**
+ * プロファイルのタグを重み降順で上位 maxTags 件に絞る（純関数）。
+ *
+ * 汎用タグ（辛口・純米等）を大量に持つヘビーユーザーでは profile.tags が肥大化し、候補取得 SQL の
+ * `IN (...)` サイズが膨らむ（REVIEW T10 PERF/SEC S-1）。プロファイルは「効く上位シグナルだけ」で
+ * 十分近似できるため、IN に渡す前に重み上位 K 件へ truncate する。都道府県は元々件数が少ないため
+ * 絞らない。同点は tagName 昇順で決定的にする（テスト・SQL の再現性）。
+ */
+export function truncateProfileTags(
+  profile: PreferenceProfile,
+  maxTags: number,
+): PreferenceProfile {
+  if (maxTags <= 0) {
+    return { tags: new Map(), prefectures: profile.prefectures };
+  }
+  if (profile.tags.size <= maxTags) {
+    return profile;
+  }
+  const top = [...profile.tags.entries()]
+    .sort((a, b) => (b[1] !== a[1] ? b[1] - a[1] : a[0] < b[0] ? -1 : 1))
+    .slice(0, maxTags);
+  return { tags: new Map(top), prefectures: profile.prefectures };
+}
+
 /** スコア対象の候補銘柄（プロファイルとの一致度だけを見るため最小限の属性）。 */
 export type ScoreCandidate = {
   sakeId: string;

@@ -17,6 +17,7 @@ import {
 import {
   buildPreferenceProfile,
   scoreCandidates,
+  truncateProfileTags,
   type HistoryEvent,
   type PreferenceProfile,
   type ScoreCandidate,
@@ -57,6 +58,23 @@ export type RuleBasedConfig = {
    */
   recentHistoryLimit: number;
   /**
+   * 候補母集団の上限（REVIEW T10 PERF/SEC S-1）。汎用タグを持つヘビーユーザーで候補が数百〜千件に
+   * 膨らむと、毎リクエストのタグ一括取得＋スコアリングが重くなる（自己 DoS・体感の逆進性）。
+   * SQL 側で人気順（popularity_rank NULLS LAST → id）に上位 candidatePoolSize 件へ切ってから
+   * メモリでスコアリングする。母集団の順序は「一定の妥当性がある順」にして頭だけ拾う偏りを避ける。
+   */
+  candidatePoolSize: number;
+  /**
+   * 候補取得 SQL の `IN (...)` に渡すプロファイルタグ数の上限（REVIEW T10 PERF/SEC S-1）。
+   * プロファイルは重み上位シグナルで十分近似できるため、truncateProfileTags で上位 K 件へ絞る。
+   */
+  maxProfileTags: number;
+  /**
+   * 閲覧済み除外に使う ID 集合の上限（REVIEW T10 CODE S-1）。除外は全期間の閲覧銘柄 ID を対象にするが、
+   * 極端なヘビーユーザーで `not in (...)` が肥大化しないよう上限を設ける（大きめ）。
+   */
+  excludeIdCap: number;
+  /**
    * フォールバックで母集団とする人気銘柄の件数。この中から limit 件をランダムに選ぶことで
    * 毎回同じ並びにならない「ランダム性」を与える（DESIGN §2.5・§4.2）。
    */
@@ -68,6 +86,9 @@ export type RuleBasedConfig = {
 export const DEFAULT_RULE_BASED_CONFIG: RuleBasedConfig = {
   coldStartThreshold: 3,
   recentHistoryLimit: 100,
+  candidatePoolSize: 200,
+  maxProfileTags: 30,
+  excludeIdCap: 5000,
   popularPoolSize: 30,
 };
 
@@ -108,14 +129,15 @@ function readFilterSignals(filters: unknown): {
  * - 検索: 履歴 1 行 = 1 イベント。filters の tagNames・prefectureCode を持つ。
  * viewed_at / searched_at から現在時刻との差（日数）を ageDays として付す。
  *
- * 返り値はイベント列（プロファイル化は scoring.ts）と、閲覧済み銘柄 ID の集合（除外用）。
+ * 集計対象は直近 recentLimit 件（時間減衰前提で古い履歴は薄いため。閲覧済み除外は別関数で
+ * 全期間を引く＝REVIEW T10 CODE S-1）。
  */
 async function collectHistory(
   db: CatalogDb,
   userId: string,
   recentLimit: number,
   now: number,
-): Promise<{ events: HistoryEvent[]; viewedSakeIds: Set<string> }> {
+): Promise<HistoryEvent[]> {
   const viewRows = await db
     .select({
       sakeId: viewHistories.sakeId,
@@ -129,10 +151,9 @@ async function collectHistory(
     .orderBy(desc(viewHistories.viewedAt), desc(viewHistories.id))
     .limit(recentLimit);
 
-  const viewedSakeIds = new Set(viewRows.map((row) => row.sakeId));
-
-  // 閲覧銘柄のタグを 1 クエリ一括取得（N+1 回避。selectTagsBySakeIds を再利用）。
-  const tagsBySakeId = await selectTagsBySakeIds(db, [...viewedSakeIds]);
+  // 集計対象銘柄のタグを 1 クエリ一括取得（N+1 回避。selectTagsBySakeIds を再利用）。
+  const recentSakeIds = [...new Set(viewRows.map((row) => row.sakeId))];
+  const tagsBySakeId = await selectTagsBySakeIds(db, recentSakeIds);
 
   const events: HistoryEvent[] = viewRows.map((row) => ({
     kind: "view",
@@ -161,7 +182,27 @@ async function collectHistory(
     });
   }
 
-  return { events, viewedSakeIds };
+  return events;
+}
+
+/**
+ * ユーザーが過去に閲覧した銘柄 ID の集合を全期間から取得する（除外用。REVIEW T10 CODE S-1）。
+ *
+ * 嗜好集計は直近 recentHistoryLimit 件に絞るが、閲覧済み除外は全期間を対象にしないと
+ * 100 件超のユーザーで既視銘柄が推薦に混入し「ホームは新規発見」の不変条件が崩れる。
+ * ID のみの軽量クエリ（distinct）で引き、極端なヘビーユーザー向けに上限を設ける。
+ */
+async function selectViewedSakeIds(
+  db: CatalogDb,
+  userId: string,
+  cap: number,
+): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({ sakeId: viewHistories.sakeId })
+    .from(viewHistories)
+    .where(eq(viewHistories.userId, userId))
+    .limit(cap);
+  return new Set(rows.map((row) => row.sakeId));
 }
 
 /**
@@ -169,12 +210,20 @@ async function collectHistory(
  *
  * プロファイルにあるタグ名・都道府県コードのいずれかを持つ銘柄だけを SQL で絞り込み、
  * 全銘柄をメモリに載せない（数千件規模でも候補集合を小さく保つ）。閲覧済みは SQL で除外。
+ *
+ * 母集団の上限（REVIEW T10 PERF/SEC S-1）: 人気順（popularity_rank NULLS LAST → id）で
+ * 上位 candidatePoolSize 件へ切ってから返す。汎用タグ持ちのヘビーユーザーでも母集団が
+ * 一定サイズに収まり、後段のタグ一括取得・スコアリングが自己 DoS 化しない。名前順の頭だけ
+ * 拾う偏りを避けるため一定の妥当性がある人気順を採用する。
+ *
+ * profile は呼び出し側で truncateProfileTags 済み（IN 句サイズを抑える）。
  * 返す候補には scoring 用のタグ名配列・都道府県を付ける（タグは一括取得）。
  */
 async function selectCandidates(
   db: CatalogDb,
   profile: PreferenceProfile,
   viewedSakeIds: Set<string>,
+  candidatePoolSize: number,
 ): Promise<{
   candidates: ScoreCandidate[];
   summaries: Map<string, SakeSummary>;
@@ -217,7 +266,9 @@ async function selectCandidates(
           : undefined,
       ),
     )
-    .orderBy(asc(sakes.name), asc(sakes.id));
+    // 人気順（NULL は最後）→ id で母集団の上位を安定的に拾う。
+    .orderBy(sql`${sakes.popularityRank} asc nulls last`, asc(sakes.id))
+    .limit(candidatePoolSize);
 
   const tagsBySakeId = await selectTagsBySakeIds(
     db,
@@ -247,10 +298,11 @@ async function selectCandidates(
 /**
  * 人気ランキング（popularity_rank）上位からランダムに limit 件返す（コールドスタート）。
  *
- * popularPoolSize 件の母集団を人気順で取り、そこから limit 件をシャッフルして選ぶことで
- * 毎回同じ並びにしない（DESIGN §2.5・§4.2 の「ランダム性」）。除外したい銘柄
- * （履歴ベースで既に選んだ銘柄）は excludeIds で外す。popularity_rank が NULL の銘柄は
- * 母集団に含めない（index 3 の部分インデックス対象）。
+ * poolSize 件の母集団を人気順で取り、そこから limit 件をシャッフルして選ぶことで
+ * 毎回同じ並びにしない（DESIGN §2.5・§4.2 の「ランダム性」）。母集団は
+ * max(poolSize, limit) 件取り、limit > poolSize でも件数不足にならないようにする
+ * （REVIEW T10 CODE S-2 の不変条件）。除外したい銘柄（閲覧済み・履歴ベースで既に選んだ銘柄）は
+ * excludeIds で外す。popularity_rank が NULL の銘柄は母集団に含めない（index 3 の部分インデックス）。
  */
 async function selectPopular(
   db: CatalogDb,
@@ -276,7 +328,7 @@ async function selectPopular(
         : isNotNull(sakes.popularityRank),
     )
     .orderBy(asc(sakes.popularityRank))
-    .limit(poolSize);
+    .limit(Math.max(poolSize, limit));
 
   const chosen = shuffle(rows).slice(0, limit);
 
@@ -322,26 +374,39 @@ export async function recommendRuleBased(
 
   // 未ログインは履歴を引けない → 人気ランキングのフォールバック（コールドスタート）。
   if (userId === null) {
-    return fallbackOnly(db, limit, config);
+    return fallbackOnly(db, limit, config, new Set());
   }
 
-  const { events, viewedSakeIds } = await collectHistory(
+  const events = await collectHistory(
     db,
     userId,
     config.recentHistoryLimit,
     now,
   );
 
+  // 閲覧済み除外は全期間の閲覧銘柄を対象にする（REVIEW T10 CODE S-1）。
+  const viewedSakeIds = await selectViewedSakeIds(
+    db,
+    userId,
+    config.excludeIdCap,
+  );
+
   // 履歴イベント総数がしきい値未満 → フォールバック（DESIGN §2.5 コールドスタート）。
+  // フォールバックでも閲覧済みは除外して既視銘柄を出さない（REVIEW T10 CODE C-1）。
   if (events.length < config.coldStartThreshold) {
-    return fallbackOnly(db, limit, config);
+    return fallbackOnly(db, limit, config, viewedSakeIds);
   }
 
-  const profile = buildPreferenceProfile(events, config.weights);
+  // プロファイルはタグ重み上位 K 件に絞ってから候補取得の IN に渡す（REVIEW T10 PERF/SEC S-1）。
+  const profile = truncateProfileTags(
+    buildPreferenceProfile(events, config.weights),
+    config.maxProfileTags,
+  );
   const { candidates, summaries } = await selectCandidates(
     db,
     profile,
     viewedSakeIds,
+    config.candidatePoolSize,
   );
   const scored = scoreCandidates(candidates, profile, viewedSakeIds).slice(
     0,
@@ -379,17 +444,21 @@ export async function recommendRuleBased(
   return recommendations;
 }
 
-/** 人気ランキングのみで limit 件返す（未ログイン・コールドスタート共通）。 */
+/**
+ * 人気ランキングのみで limit 件返す（未ログイン・コールドスタート共通）。
+ * excludeIds に閲覧済み銘柄を渡すと既視銘柄を除く（未ログインは空集合。REVIEW T10 CODE C-1）。
+ */
 async function fallbackOnly(
   db: CatalogDb,
   limit: number,
   config: RuleBasedConfig,
+  excludeIds: Set<string>,
 ): Promise<RecommendedSake[]> {
   const popular = await selectPopular(
     db,
     limit,
     config.popularPoolSize,
-    new Set(),
+    excludeIds,
   );
   return popular.map((sake) => ({ sake, reason: POPULAR_REASON }));
 }

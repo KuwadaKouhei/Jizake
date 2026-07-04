@@ -22,6 +22,8 @@ const orm = drizzle(db, { schema });
 
 const USER_ACTIVE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const USER_SPARSE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+// 直近取得上限を超える閲覧履歴を持つユーザー（全期間の既視除外の検証用）。
+const USER_HEAVY = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 const BREWERY_YAMAGUCHI = "c1111111-1111-4111-8111-111111111111";
 const BREWERY_NIIGATA = "c2222222-2222-4222-8222-222222222222";
@@ -44,11 +46,15 @@ const TAG_HANAYAKA = "f3333333-3333-4333-8333-333333333333"; // 華やか
 
 const NOW = new Date("2026-07-04T00:00:00Z").getTime();
 const RECENT = new Date("2026-07-03T00:00:00Z");
+const OLD = new Date("2026-01-01T00:00:00Z");
 
 // テストは Math.random に依存しないよう popularPoolSize=limit で母集団=返却数にする。
 const CONFIG: RuleBasedConfig = {
   coldStartThreshold: 3,
   recentHistoryLimit: 100,
+  candidatePoolSize: 200,
+  maxProfileTags: 30,
+  excludeIdCap: 5000,
   popularPoolSize: 3,
 };
 
@@ -65,7 +71,7 @@ beforeAll(async () => {
   await migrate(orm, { migrationsFolder: "drizzle" });
 
   await db.exec(
-    `INSERT INTO auth.users (id) VALUES ('${USER_ACTIVE}'), ('${USER_SPARSE}');`,
+    `INSERT INTO auth.users (id) VALUES ('${USER_ACTIVE}'), ('${USER_SPARSE}'), ('${USER_HEAVY}');`,
   );
 
   await orm.insert(schema.breweries).values([
@@ -131,6 +137,20 @@ beforeAll(async () => {
   await orm
     .insert(schema.viewHistories)
     .values([{ userId: USER_SPARSE, sakeId: SAKE_VIEWED, viewedAt: RECENT }]);
+
+  // USER_HEAVY の履歴: 辛口＋淡麗の SAKE_MATCH_STRONG を「古い日時」で閲覧済み。さらに新しい日時で
+  // SAKE_VIEWED（辛口）を閲覧。recentHistoryLimit=1 に絞ると集計の直近ウィンドウには新しい
+  // SAKE_VIEWED だけが入り、古い SAKE_MATCH_STRONG は集計から外れる。それでも全期間の既視除外は
+  // SAKE_MATCH_STRONG を捕捉して候補から外すべき（REVIEW T10 CODE S-1）。嗜好は辛口検索で補強し、
+  // SAKE_MATCH_WEAK（辛口のみ・未閲覧）が履歴ベース候補として残る。
+  await orm.insert(schema.viewHistories).values([
+    { userId: USER_HEAVY, sakeId: SAKE_MATCH_STRONG, viewedAt: OLD }, // 古い閲覧（除外対象）
+    { userId: USER_HEAVY, sakeId: SAKE_VIEWED, viewedAt: RECENT }, // 新しい閲覧（辛口）
+  ]);
+  await orm.insert(schema.searchHistories).values([
+    { userId: USER_HEAVY, filters: { tagNames: ["辛口"] }, searchedAt: RECENT },
+    { userId: USER_HEAVY, filters: { tagNames: ["辛口"] }, searchedAt: RECENT },
+  ]);
 });
 
 describe("recommendRuleBased（履歴ベース）", () => {
@@ -182,6 +202,38 @@ describe("recommendRuleBased（履歴ベース）", () => {
     expect(result).toHaveLength(1);
     expect(result[0].sake.id).toBe(SAKE_MATCH_STRONG);
   });
+
+  it("候補母集団は候補上限で切られる（REVIEW S-1）", async () => {
+    // candidatePoolSize=1 なら人気順（NULL 最後）で 1 銘柄しか母集団に入らない。
+    // SAKE_MATCH_STRONG/WEAK/NOMATCH はいずれも popularity_rank NULL のため id 昇順で先頭のみ。
+    const result = await recommendRuleBased(
+      orm,
+      { userId: USER_ACTIVE, limit: 5 },
+      { ...CONFIG, candidatePoolSize: 1 },
+      NOW,
+    );
+    const historyEntries = result.filter((r) => r.reason.kind === "history");
+    // 母集団が 1 に切られるため、履歴ベースで拾える銘柄は最大 1 件（残りは人気補完）。
+    expect(historyEntries.length).toBeLessThanOrEqual(1);
+  });
+
+  it("全期間の閲覧済みを除外する（直近取得上限を超えても既視は出さない・REVIEW S-1）", async () => {
+    // recentHistoryLimit=1 で集計の直近ウィンドウを絞っても、古く閲覧した SAKE_MATCH_STRONG は
+    // 全期間の既視除外で候補から外れる。辛口の SAKE_MATCH_WEAK（未閲覧）は残る。
+    const result = await recommendRuleBased(
+      orm,
+      { userId: USER_HEAVY, limit: 5 },
+      // recentHistoryLimit=1: 直近ウィンドウは view1件＋search1件の 2 イベント。しきい値を 2 にして
+      // 履歴ベース経路に入れる（既視除外が全期間であることの検証が主眼）。
+      { ...CONFIG, recentHistoryLimit: 1, coldStartThreshold: 2 },
+      NOW,
+    );
+    const ids = result.map((r) => r.sake.id);
+    expect(ids).not.toContain(SAKE_MATCH_STRONG); // 古い閲覧でも除外される
+    expect(ids).not.toContain(SAKE_VIEWED); // 直近の閲覧も除外される
+    const weak = result.find((r) => r.sake.id === SAKE_MATCH_WEAK);
+    expect(weak?.reason.kind).toBe("history");
+  });
 });
 
 describe("recommendRuleBased（コールドスタート）", () => {
@@ -217,5 +269,17 @@ describe("recommendRuleBased（コールドスタート）", () => {
       NOW,
     );
     expect(result).toEqual([]);
+  });
+
+  it("limit > popularPoolSize でも母集団を limit まで広げ件数を満たす（REVIEW S-2）", async () => {
+    // popularPoolSize=1 だが人気銘柄は 3 件ある。limit=3 なら母集団を max(1,3)=3 に広げて満たす。
+    const result = await recommendRuleBased(
+      orm,
+      { userId: null, limit: 3 },
+      { ...CONFIG, popularPoolSize: 1 },
+      NOW,
+    );
+    expect(result).toHaveLength(3);
+    expect(result.every((r) => r.reason.kind === "popular")).toBe(true);
   });
 });
