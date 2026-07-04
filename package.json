@@ -14,7 +14,8 @@
     "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "import:sakenowa": "tsx scripts/import-sakenowa.ts"
+    "import:sakenowa": "tsx scripts/import-sakenowa.ts",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
