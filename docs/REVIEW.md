@@ -1,56 +1,57 @@
 # レビュー・監査結果（REVIEW）
 
-> 対象: `main...feature/T11-embedding-pipeline`（T11 埋め込みパイプライン）
+> 対象: `main...feature/T12-rag-retriever`（T12 RAG リトリーバ＋捏造防止検証）
 > 実施日: 2026-07-04
-> レビュアー: code-reviewer / security-auditor / philosophy-compliance-reviewer（3ペルソナ並行。バッチスクリプトで UI 変更がないため性能監査は省略）
-> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T10: PR #10）
+> レビュアー: code-reviewer / security-auditor / web-performance-auditor / philosophy-compliance-reviewer（4ペルソナ並行）
+> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T11: PR #11）
 
-## 判定: ✅ マージ可
+## 判定: ✅ マージ可（性能 B-1 は理由を明記して T13 に移管）
 
-Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T11 レビュー指摘対応`）。修正後、全検証グリーン（309 テスト・lint・typecheck・format・build）。
+Blocker（性能 B-1）は「実 Postgres の EXPLAIN が必要でクエリ形状チューニングは T13 の主目的」のため T13 へ移管（TASKS に明記）。それ以外の Should をすべて本ブランチ内で対応済み（対応コミット: `88711ad`, `0723386`, `3e4e734`）。修正後、全検証グリーン（334 テスト・lint 0 警告・typecheck・format・build）。
 
 ## 検証結果
 
-- test 40 ファイル / 309 件全パス（T11 で +19）
-- lint / typecheck / format:check / build すべてグリーン（API キー未設定でも build 成功）
-- git 全履歴のシークレット走査: クリーン（実 API キー混入なし）
-- 思想準拠は「差し替え可能な知能・ベンダー型閉じ込め・LLM API モックいずれも高水準」と評価
+- test 40 ファイル / 334 件全パス（extract-conditions 削除で -9、レビュー回帰 +4）
+- lint（0 警告）/ typecheck / format:check / build すべてグリーン
+- セキュリティ監査は「捏造防止・SQLインジェクション・情報漏洩は構造的に安全」、思想準拠は「retriever/generator 分離・捏造防止は模範的」と評価
 
 ## 指摘と対応
 
-### Blocker
+### Blocker → T13 に移管
 
-なし。
+| # | 出所 | 指摘 | 対応 |
+|---|---|---|---|
+| B-1 | 性能/コード | `CASE + LEFT JOIN + 複合 ORDER BY` で HNSW インデックスが使われず、フリーテキスト検索が実質全件距離計算になり得る | ANN 経路（sake_embeddings 起点の素の `<=>` ORDER BY LIMIT）とタグ経路の分離を **T13（RAG 精度 PoC）へ移管**。理由: インデックス使用可否は PGlite で確認できず実 Postgres の EXPLAIN が必須、retriever のクエリ形状チューニングは T13 の主目的。公開シグネチャ `retrieve(query)`・戻り値 `SakeCandidate[]` は不変。TASKS T12 実施メモ・T13⑥に明記 |
 
 ### Should（すべて対応済み）
 
 | # | 出所 | 指摘 | 対応 |
 |---|---|---|---|
-| S-1 | コード | `embedTexts` が常に `EMBEDDING_MODEL_ID` を使うため、`embedSakes` の `model` 引数（差分判定・DB 記録に使用）と乖離しうる（生成モデルと記録モデルの二重真実） | `model` を `EmbedTextsFn` の引数としてスレッドし、生成と記録で同一値を使うよう一元化。生成モデル＝記録モデルの一致をテストで検証 |
-| S-2 | セキュリティ | 埋め込み失敗ログに AI SDK エラー全体（`responseBody`・`requestBodyValues`・ヘッダ＝トークン断片や本文）が載り得る | ログを `error.message` のみに絞る |
-| S-3 | セキュリティ | git 履歴に実 API キーが無いか要確認 | 全履歴走査を実施しクリーンを確認（対応不要と確定） |
+| S-1 | コード | `combineScore` の `vectorSimilarity`（`1-距離`）が負になり、タグ同一一致でも「埋め込み有り（逆向き）」が「埋め込み無し」より下に沈む順位逆転 | `Math.max(0, 1-distance)` でクランプ。JSDoc の range を 0..1 に統一。逆転しないことの回帰テスト追加 |
+| S-2 | セキュリティ | 提案 ID 配列の件数上限なし（巨大 IN の DoS） | `MAX_PROPOSED_IDS=16` で slice してから検証＋テスト |
+| S-3 | セキュリティ | freeText の長さ上限が層内になく巨大テキストが埋め込み API に流れる | `MAX_FREE_TEXT_LENGTH=1000` で切り詰め＋テスト |
+| S-4 | セキュリティ | retriever の limit に上限クランプなし | `Math.min(limit, CANDIDATE_POOL_SIZE)` でクランプ＋テスト |
+| S-5 | 思想 | 未使用の `extract-conditions.ts` が構造ドキュメントに無い（黙った逸脱＋YAGNI） | 削除（自然文の高度な条件抽出は T14 の LLM の役割。必要になった時点で追加） |
+| S-6 | コード | タグ AND-EXISTS が `searchSakes` と同型で Rule of Three の 3 箇所目に到達 | `buildTagAndFilters(db, tagNames, aliasPrefix)` を sakes.ts に切り出し searchSakes と retriever で共用 |
 
 ### Consider（対応済み・記録）
 
-- CODE C-1: DATABASE §2.10 の model 記録例を Gateway 形式 `openai/text-embedding-3-small` に更新 — 対応済み
-- CODE C-2: 注入経路（フェイク）が誤った次元を返しても vector(1536) 列へ入れないよう、`embedSakes` の upsert 直前に次元検証を追加 — 対応済み
-- CODE C-4: バッチ部分適用が冪等再実行で継続する意図を docstring に明記 — 対応済み
-- 記録のみ: `ai@^6.0.219` はキャレット指定のため `npm ci`＋CI `npm audit` を継続、`loadExistingEmbeddings` の全件 Map は現規模で妥当
+- CODE C-2: retriever の conditions に `SQL[]` 型注釈（searchSakes と一貫）— 対応済み
+- SEC 記録: pool を距離順で切る前提（ハード絞り込みで母集団が pool 内）を JSDoc に明示 — 対応済み
+- テスト重複（PGlite セットアップ）は現状 2 ファイルで据え置き妥当
 
 ## 受け入れ条件の充足
 
-- FR-08 の基盤（RAG の知識源となる埋め込みの生成・格納）: 説明文つき銘柄の差分埋め込み（sourceHash）＋冪等 upsert を PGlite（+pgvector）で検証。1536 次元の格納・モデル差し替え再生成・タグ変化検知をテスト ✅
-- 制約: 実 API での埋め込み生成は AI Gateway キー＋Supabase 稼働後（残作業）。日本語埋め込み精度の検証は T13 の PoC。ロジックは注入したフェイクベクトルで検証済み
+- FR-08 の核（DB に無い銘柄を提案しない・酒に特化した検索の知識源）: `validateProposedSakeIds` が LLM 出力の UUID 書式検証＋DB 実在検証で捏造を構造的に排除、retriever のハイブリッド検索（タグ SQL＋pgvector）が実在銘柄のみ返す。PGlite+pgvector＋ダミー埋め込みで検証 ✅
+- 制約: 実データでの retriever 精度・重み確定・B-1 のクエリ形状分離は T13 PoC。generator（LLM 応答）は T14。ロジックは注入したダミーで検証済み
 
-## 設計思想の達成（差し替え可能な知能・RAG 版）
+## 設計思想の達成（retriever/generator 分離・捏造防止）
 
-- AI SDK の import を `src/lib/ai/embedding.ts` の 1 箇所に閉じ込め（DIRECTORY_STRUCTURE §5.2）。UI・スクリプトはアプリ内型のみ扱う
-- モデルは AI Gateway の `provider/model` 文字列（`models.ts` 定数）で、切替が定数変更で完結
-- 埋め込み関数を `EmbedTextsFn` で注入する境界により、実 API とテスト用フェイクを差し替え可能（retriever・generator 分離の準備）
-- 純関数（`buildEmbeddingText`・`computeSourceHash`）と DB/API 実装を分離、差分基準を「埋め込み対象テキスト全体」に統一（DESIGN §2.7 に理由を記録）
+- `src/lib/rag/` は AI SDK・`streamText` を一切 import せず LLM 非依存（埋め込みアダプタの `number[]` のみ扱う）。埋め込み関数を `EmbedQueryFn` で注入し、generator（T14 の `/api/chat`）と構造的に分離
+- 捏造防止 `validateProposedSakeIds` が「DB に無い銘柄を提案しない」の要として、書式検証→実在検証→入力順保持→重複畳みを実装（SQL 断片も DB 到達前に破棄）
+- 重み・プールサイズは定数化（PoC で確定する暫定値と明記）
 
-## セキュリティ・思想の特記
+## セキュリティの特記
 
-- シークレット直書きなし、`.env.example` は空プレースホルダ、キーは gateway プロバイダが実行時参照（import/build を壊さない）
-- 送信データは公開表示前提の非機微データ（銘柄・説明文・タグ）、SQL は全経路パラメータ化
-- テストは実 API を叩かずフェイクベクトル注入（TEST_PHILOSOPHY「LLM API は必ずモック」に準拠）
+- 捏造防止はバイパス不可（LLM 出力を素通しせず必ず DB 実在に絞る）、SQL は全経路パラメータ化（cosineDistance のクエリベクトルも Drizzle バインド）、参照は公開カタログのみ（履歴・他人データ非参照・IDOR なし）
+- freeText はプロンプトインジェクション面にならない（SQL 連結されず埋め込みになるだけ）

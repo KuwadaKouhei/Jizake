@@ -94,8 +94,8 @@ const orm = drizzle(db, { schema });
 
 // 決定的なフェイク埋め込み: テキスト文字数を基点に 1536 次元を埋める。
 // テキストごとに異なり、同一テキストなら同一ベクトルになる（実 API を模す）。
-// model は生成には使わないが、注入境界の型（EmbedTextsFn）に合わせて受ける。
-const fakeEmbed: EmbedTextsFn = async (texts, _model) =>
+// model 引数は生成に使わないため受けない（EmbedTextsFn へは引数少なめで代入可）。
+const fakeEmbed: EmbedTextsFn = async (texts) =>
   texts.map((text) => {
     const seed = text.length;
     return Array.from(
