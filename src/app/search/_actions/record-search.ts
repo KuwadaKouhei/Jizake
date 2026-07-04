@@ -7,6 +7,7 @@ import { searchHistories } from "@/lib/db/schema";
 import {
   type SearchCriteria,
   isEmptyCriteria,
+  sanitizeCriteria,
 } from "../_lib/build-search-query";
 
 /**
@@ -30,7 +31,12 @@ import {
  * user_id 二段防御（DESIGN §6.2）: user_id は引数で受けず認証セッションから強制取得。
  * 未ログインは no-op。記録失敗は表示に影響させない（握りつぶさずログのみ）。
  */
-export async function recordSearch(criteria: SearchCriteria): Promise<void> {
+export async function recordSearch(rawCriteria: SearchCriteria): Promise<void> {
+  // クライアントは Server Action へ任意の criteria を送れるため、URL 由来と同じ
+  // Zod 制約（q 長さ・タグ数/長さ・都道府県書式）でサーバ側再検証してから使う
+  // （信頼できない入力の再検証。REVIEW T09 SEC B-1）。
+  const criteria = sanitizeCriteria(rawCriteria);
+
   // 空条件は記録しない（DATABASE §2.7 CHECK と対応）。0 件ヒットの検索は
   // 条件がある限り記録する（「探したが無かった」も嗜好情報。DESIGN §4.1）。
   if (isEmptyCriteria(criteria)) {
@@ -61,7 +67,10 @@ export async function recordSearch(criteria: SearchCriteria): Promise<void> {
         filters,
       });
   } catch (error) {
-    // fire-and-forget の記録失敗は表示に影響させない。握りつぶさずログに残す。
-    console.error("[recordSearch] 検索履歴の記録に失敗しました", error);
+    // fire-and-forget の記録失敗は表示に影響させない。握りつぶさずログに残すが、
+    // ユーザー入力値（query/filters）や SQL パラメータをログに含めないよう
+    // message のみに絞る（ログ経由の情報漏洩防止。REVIEW T09 SEC S-3）。
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[recordSearch] 検索履歴の記録に失敗しました:", message);
   }
 }

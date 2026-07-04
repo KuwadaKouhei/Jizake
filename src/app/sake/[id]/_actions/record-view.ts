@@ -42,7 +42,9 @@ export async function recordView(sakeId: string): Promise<void> {
     });
   } catch (error) {
     // fire-and-forget の記録失敗は表示に影響させない（DESIGN §4.1）。
-    // ただし握りつぶさず、原因追跡のためログに残す。
-    console.error("[recordView] 閲覧履歴の記録に失敗しました", error);
+    // 握りつぶさずログに残すが、SQL パラメータ等をログに含めないよう message のみに絞る
+    // （ログ経由の情報漏洩防止。REVIEW T09 SEC S-3）。
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[recordView] 閲覧履歴の記録に失敗しました:", message);
   }
 }
