@@ -1,4 +1,4 @@
-# CI: PR 毎に lint + typecheck + Vitest を実行する（TASKS T01 ④）。
+# CI: PR 毎に lint + typecheck + Vitest + build を実行する（TASKS T01 ④、TEST_PHILOSOPHY CI ゲート）。
 # Playwright E2E ジョブは T16 で追加する。
 name: CI
 
@@ -29,3 +29,7 @@ jobs:
 
       - name: Test (Vitest)
         run: npm test
+
+      # main は常に起動可能を保つ（GIT_CONVENTIONS）。ビルド不能なコードのマージを防ぐ
+      - name: Build
+        run: npm run build
