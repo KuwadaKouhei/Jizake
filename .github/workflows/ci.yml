@@ -7,6 +7,15 @@ on:
   push:
     branches: [main]
 
+# npm ci で依存のスクリプトを実行するため、トークンは最小権限に絞る
+permissions:
+  contents: read
+
+# 同一ブランチへの連続 push で古いランを打ち切る（Actions 無料枠の節約）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -20,6 +29,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
