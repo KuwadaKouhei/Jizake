@@ -119,7 +119,9 @@ function toFlavorChart(row: {
 
 // PostgresJsDatabase（本番）と PgliteDatabase（テスト）の両方を受ける共通型
 // （scripts/seed.ts と同型。テストで PGlite を差し込むため）。
-type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
+// 履歴クエリ（history/_lib/queries.ts）も同じ db を受けるため export する。
+export type CatalogDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type Db = CatalogDb;
 
 /** 銘柄に紐づくタグを取得する（category → name の安定順）。 */
 async function selectSakeTags(
@@ -150,7 +152,7 @@ async function selectSakeTags(
  *
  * 返り値の各配列は category → name の安定順（各銘柄内でも一覧全体でも順序が安定）。
  */
-async function selectTagsBySakeIds(
+export async function selectTagsBySakeIds(
   db: Db,
   sakeIds: string[],
 ): Promise<Map<string, SakeTagSummary[]>> {
