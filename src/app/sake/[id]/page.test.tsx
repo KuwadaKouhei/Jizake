@@ -12,6 +12,14 @@ const { getSakeDetail } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db/queries/sakes", () => ({ getSakeDetail }));
 
+// 閲覧記録トリガ（Client Component）はマウント時に Server Action → DB へ至るチェーンを
+// 持つ。ページの表示ロジック検証では不要なうえ、Vitest は "use server"/"use client" 境界を
+// 尊重せず client.ts のサーバ専用ガードに触れてしまうため、トリガをモックで無効化する
+// （記録の挙動は record-view.test.ts / record-view-trigger.test.tsx で個別に検証）。
+vi.mock("./_components/record-view-trigger", () => ({
+  RecordViewTrigger: () => null,
+}));
+
 // next/navigation の notFound は例外を投げてレンダリングを中断する。挙動を再現する。
 const notFoundError = new Error("NEXT_NOT_FOUND");
 vi.mock("next/navigation", () => ({

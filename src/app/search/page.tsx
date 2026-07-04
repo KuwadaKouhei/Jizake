@@ -8,6 +8,7 @@ import { getSearchSakes } from "@/lib/db/queries/sakes";
 import { getTasteTagOptions } from "@/lib/db/queries/tags";
 import { totalPageCount } from "@/lib/pagination/pagination";
 
+import { RecordSearchTrigger } from "./_components/record-search-trigger";
 import {
   buildSearchCriteria,
   toSearchQueryString,
@@ -60,6 +61,9 @@ export default async function SearchPage({ searchParams }: PageProps) {
 
   return (
     <section className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+      {/* 実検索のマウント時に fire-and-forget で検索履歴を記録する（DESIGN §2.4）。
+          空条件・未ログインはサーバ側で no-op。表示には影響しない。 */}
+      <RecordSearchTrigger criteria={criteria} />
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           日本酒を検索

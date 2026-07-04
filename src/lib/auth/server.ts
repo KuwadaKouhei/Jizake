@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 import { getSupabasePublicConfig } from "./env";
 
@@ -51,8 +52,12 @@ export type AuthUser = {
  * `getSession()`（Cookie を無検証で信じる）より安全（Supabase 公式推奨）。
  * 環境変数未設定など認証基盤が使えない場合も、UI を壊さず未ログイン扱いにする
  * （閲覧・検索は匿名で動く=思想「未ログインでも価値がある」）。
+ *
+ * React.cache でラップし、同一リクエスト内の複数回呼び出し（ヘッダー・ページ本体・
+ * 履歴クエリ等）で getUser() のトークン検証（ネットワーク往復）が反復しないようにする
+ * （REVIEW T09 CODE S-1）。
  */
-export async function getCurrentUser(): Promise<AuthUser | null> {
+export const getCurrentUser = cache(async (): Promise<AuthUser | null> => {
   let supabase;
   try {
     supabase = await createSupabaseServerClient();
@@ -68,4 +73,4 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (!user) return null;
 
   return { id: user.id, email: user.email ?? null };
-}
+});

@@ -42,6 +42,9 @@ const MAX_QUERY_LENGTH = 100;
 // 同時指定できる味タグ数の上限。UI の候補数（DB の taste タグ）に対して十分広く、
 // URL 手打ちで過大な AND 条件（EXISTS の連結）を生まないための保険。
 const MAX_TAGS = 20;
+// 味タグ 1 件あたりの最大長。実在タグ名（数文字）に対し十分広く、巨大文字列の
+// 混入（履歴 jsonb の肥大化・DoS）を防ぐ境界制限（REVIEW T09 SEC S-1）。
+const MAX_TAG_LENGTH = 32;
 
 /**
  * 生の文字列/配列を、トリム済み・空/重複除去済み・ソート済みの文字列配列に正規化する。
@@ -49,6 +52,7 @@ const MAX_TAGS = 20;
  * ソートは味タグを「順序に意味のない集合」として扱うため（`?tags=辛口&tags=淡麗` と
  * `?tags=淡麗&tags=辛口` を同一表現に寄せる）。これで共有 URL・React.cache キー・
  * 生成 SQL（EXISTS の alias 順）がすべて決定的になる（CODE レビュー S-2）。
+ * 各要素は MAX_TAG_LENGTH で切り詰める（巨大文字列の混入防止）。
  */
 function normalizeStringList(raw: string | string[] | undefined): string[] {
   if (raw === undefined) {
@@ -57,7 +61,7 @@ function normalizeStringList(raw: string | string[] | undefined): string[] {
   const values = Array.isArray(raw) ? raw : [raw];
   const seen = new Set<string>();
   for (const value of values) {
-    const trimmed = value.trim();
+    const trimmed = value.trim().slice(0, MAX_TAG_LENGTH);
     if (trimmed.length > 0) {
       seen.add(trimmed);
     }
@@ -122,6 +126,23 @@ export function buildSearchCriteria(raw: RawSearchParams): SearchCriteria {
     tagNames: parsed.tags,
     page: parsed.page,
   };
+}
+
+/**
+ * 既存の SearchCriteria をサーバ側で再検証・正規化する（純関数）。
+ *
+ * Server Action（recordSearch）はクライアントが任意に構築した SearchCriteria を
+ * 受け取り得るため、URL 由来の buildSearchCriteria と同じ Zod 制約（q 長さ・タグ数/長さ・
+ * 都道府県書式）を再適用してから DB へ渡す（信頼できない入力の再検証。REVIEW T09 SEC B-1）。
+ * criteria をいったん生パラメータ形へ写してから同一スキーマに通し、単一情報源を保つ。
+ */
+export function sanitizeCriteria(criteria: SearchCriteria): SearchCriteria {
+  return buildSearchCriteria({
+    q: criteria.q,
+    prefecture: criteria.prefectureCode,
+    tags: criteria.tagNames,
+    page: String(criteria.page),
+  });
 }
 
 /**

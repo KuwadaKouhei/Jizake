@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSearchCriteria,
   isEmptyCriteria,
+  sanitizeCriteria,
   toSearchQueryString,
 } from "./build-search-query";
 
@@ -131,5 +132,44 @@ describe("toSearchQueryString", () => {
     expect(toSearchQueryString({ q: "久保田", tagNames: [], page: 1 })).toBe(
       "?q=%E4%B9%85%E4%BF%9D%E7%94%B0",
     );
+  });
+});
+
+describe("sanitizeCriteria", () => {
+  it("クライアント由来の過大な criteria をサーバ側で再検証・クランプする", () => {
+    const dirty = {
+      q: "あ".repeat(500), // 100 文字上限
+      prefectureCode: "99", // 不正コード → undefined
+      tagNames: Array.from({ length: 50 }, (_, i) => `tag${i}`), // 20 件上限
+      page: 3,
+    };
+    const clean = sanitizeCriteria(dirty);
+    expect(clean.q?.length).toBe(100);
+    expect(clean.prefectureCode).toBeUndefined();
+    expect(clean.tagNames.length).toBe(20);
+    expect(clean.page).toBe(3);
+  });
+
+  it("巨大なタグ名は 1 要素あたりの上限で切り詰める（jsonb 肥大化防止）", () => {
+    const clean = sanitizeCriteria({
+      tagNames: ["か".repeat(200)],
+      page: 1,
+    });
+    expect(clean.tagNames[0].length).toBe(32);
+  });
+
+  it("正常な条件はそのまま保持する", () => {
+    const clean = sanitizeCriteria({
+      q: "獺祭",
+      prefectureCode: "35",
+      tagNames: ["辛口"],
+      page: 2,
+    });
+    expect(clean).toEqual({
+      q: "獺祭",
+      prefectureCode: "35",
+      tagNames: ["辛口"],
+      page: 2,
+    });
   });
 });

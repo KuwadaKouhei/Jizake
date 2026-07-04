@@ -7,6 +7,7 @@ import { getSakeDetail } from "@/lib/db/queries/sakes";
 
 import { ExternalLinks } from "./_components/external-links";
 import { FlavorChartView } from "./_components/flavor-chart";
+import { RecordViewTrigger } from "./_components/record-view-trigger";
 import { SakeDescription } from "./_components/sake-description";
 import { SakeTagList } from "./_components/sake-tag-list";
 
@@ -59,6 +60,9 @@ export default async function SakeDetailPage({ params }: PageProps) {
 
   return (
     <article className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
+      {/* 実閲覧のマウント時に fire-and-forget で閲覧履歴を記録する（DESIGN §2.4）。
+          未ログインはサーバ側で no-op。表示には影響しない。 */}
+      <RecordViewTrigger sakeId={sake.id} />
       <header className="mb-6 border-b pb-6">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           {sake.name}

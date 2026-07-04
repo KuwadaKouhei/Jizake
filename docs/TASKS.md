@@ -198,7 +198,7 @@
 | 受け入れ条件 | FR-04（サインアップ／ログイン／ログアウト） |
 | 依存タスク | T02（profiles トリガ）、T01。T05〜T07 と並行可 |
 | ブランチ | `feature/T08-auth` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。設計判断と実装内容:
 > - **@supabase/ssr 標準パターン**: `src/lib/auth/` に境界を閉じ、`@supabase/*` import はここのみに限定
@@ -248,7 +248,43 @@
 | 受け入れ条件 | FR-05（閲覧・検索が履歴として記録される）、FR-04（未ログインで履歴アクセス時に誘導） |
 | 依存タスク | T05, T07, T08 |
 | ブランチ | `feature/T09-history` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。設計判断と実装内容:
+> - **fire-and-forget の記録**（DESIGN §2.4 / 決定 D3）: 詳細ページ・検索結果ページに小さな Client
+>   Component（`_components/record-view-trigger.tsx`・`record-search-trigger.tsx`）を置き、実ブラウザの
+>   マウント時に `useEffect` から Server Action（`record-view.ts`・`record-search.ts`）を `void`（await せず）
+>   で呼ぶ。RSC レンダリング中に INSERT しないことでプリフェッチ・キャッシュ・ボットの多重記録を避け、実閲覧・
+>   実検索のみを記録する。記録の失敗は表示に影響させない（Server Action 内で握るがログは必ず出す＝握りつぶし禁止
+>   規約に反さない吸収）。
+> - **多重記録の抑制**: DESIGN §2.4 は「追記専用で毎回記録してよい・避けるのはプリフェッチ多重のみ」。同一マウント内
+>   の重複発火（React 18 StrictMode の二重マウント・同一値での再レンダリング）だけを `useRef` ガードで 1 回に抑える。
+>   閲覧は `sakeId`、検索は「page を除いた条件のシリアライズ」をキーにし、条件が変われば再記録・ページ送りでは
+>   再記録しない（ページ送りは同一検索の続き）。
+> - **user_id 二段防御**（DESIGN §6.2 / DATABASE §4.1）: 主防御=公開関数（`getViewHistoryPage`・
+>   `getSearchHistoryPage`・`recordView`・`recordSearch`）は **user_id を引数で受けず**必ず `getCurrentUser` で
+>   セッションから取得。クライアントが渡せるのは sakeId / criteria のみで、他人の user_id で読み書きする経路が
+>   UI に露出しない。下位の `selectViewHistory`/`selectSearchHistory` は db・userId を引数で受けてテスト可能に
+>   するが、これらへ userId を渡すのは公開関数だけ。二段目=RLS（本人 SELECT・書き込みポリシーなしで anon 全拒否）。
+> - **filters スナップショット**（DATABASE §2.7 / 決定 DB-5・DB-9 の CHECK と対応）: `q` は `query` カラム、
+>   都道府県・タグは `filters`(jsonb) に `SearchCriteria` と同形で保存（`{"prefectureCode":"35","tagNames":["辛口"]}`）。
+>   `page` は含めない（再検索は 1 ページ目から）。空条件（`isEmptyCriteria`）は記録しない（空検索=全件表示のため）。
+>   0 件ヒットでも条件があれば記録する（「探したが無かった」も嗜好情報）。
+> - **履歴クエリの配置**（DIR-3）: `/history` からしか使わない機能固有クエリのため `history/_lib/queries.ts` に置き、
+>   横断カタログクエリ（`src/lib/db/queries`）へは昇格しない。銘柄要約は `SakeSummary`・`selectTagsBySakeIds`
+>   （export 化）・`PAGE_SIZE` を再利用し、閲覧履歴は view_histories×sakes×breweries を JOIN・viewed_at DESC・
+>   ページ分のタグを 1 クエリ一括取得（N+1 回避）。
+> - **/history ページ**: T08 のプレースホルダを置換。閲覧履歴は `SakeCard`（詳細リンク）＋ JST 閲覧日時、検索履歴は
+>   条件バッジ＋ `/search?...` 再検索リンク（`_lib/format.ts` の純関数 `searchHistoryToHref`/`Labels`/`formatViewedAt`）。
+>   0 件は空状態＋検索導線。未ログインは middleware＋ページ側 `getCurrentUser` の多層防御で `/login?next=/history`。
+> - **逸脱記録**（DIR-11・§5.2 例外）: 履歴 `_lib` から検索 `_lib`（`SearchCriteria`・`toSearchQueryString`・
+>   `isEmptyCriteria`）を一方向参照。検索が URL⇔条件の唯一の情報源で再実装は二重定義になるため。循環なし。
+>   3 機能目が現れたら責務名ディレクトリへ昇格する。DESIGN §5.3 の recordSearch シグネチャも実装（SearchCriteria）に更新。
+> - テストは PGlite（履歴クエリ: 本人分のみ・他人の履歴が漏れない・時系列降順・JOIN／Server Action: 未ログイン no-op・
+>   不正 id no-op・空条件スキップ・正常記録・user_id 強制・追記・失敗時ログのみ）＋純関数（format）＋ Client Component
+>   （トリガの発火・多重抑制・fire-and-forget）＋ SSR 出力（/history の空状態・閲覧/検索履歴表示・未ログイン redirect）で
+>   実施（全 251 テスト。lint / typecheck / format:check / build グリーン）。
+> - **残作業**: 実際の認証済みユーザーでの記録・RLS 実効遮断は Supabase 実プロジェクトが要る（T02 残作業）。E2E は T16。
 
 ### T10: 履歴ベース推薦エンジン＋ホーム画面表示
 
