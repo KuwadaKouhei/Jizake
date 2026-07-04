@@ -55,6 +55,9 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
   const isUser = message.role === "user";
 
   // テキスト（プレーン表示）と提案カード（検証済み）を parts から取り出す。
+  // 注（S-4 併記）: data part は「サーバが送った検証済み」のもののみが届く。クライアントが
+  // 過去履歴で偽装した data-* は Zod 検証で未知キーとして strip され、サーバの
+  // stripAssistantDataParts でも落ちるため LLM にも描画にも到達しない（偽装カード不可能）。
   const textParts = message.parts.filter(
     (part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> =>
       part.type === "text",
@@ -83,7 +86,12 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
       ) : null}
 
       {proposedParts.map((part, index) => (
-        <ProposedSakes key={index} sakes={part.data.sakes} />
+        // 安定キー（C-2）: 提案の先頭銘柄 ID を使う。data part には固有 id が無いため、
+        // 空提案（先頭なし）のみ index にフォールバックする。
+        <ProposedSakes
+          key={part.data.sakes[0]?.id ?? `proposed-${index}`}
+          sakes={part.data.sakes}
+        />
       ))}
     </div>
   );

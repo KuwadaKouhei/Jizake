@@ -33,6 +33,9 @@ import { seedSakes } from "../../seed";
 // 本番スキーマそのものでの捏造防止 E2E（実在 ID＋存在しない ID を検証で落とす）は、本番スキーマを
 // 直接 import できる src/app/api/chat/_lib/tools.test.ts に移設済み。本ファイルは PoC 資産として
 // retriever 精度ハーネスと同居する end-to-end 確認（seed-data の実銘柄での二段目検証）を担う。
+//
+// ドリフト注意（PHIL S-1）: 下記スキーマは tools.ts の proposeSakeInputSchema と同一構造を保つこと。
+// 本番スキーマを変えたら、この雛形と tools.test.ts の両方を追随させる（相互参照でズレに気づく）。
 const proposeSakeSchema = z.object({
   proposals: z
     .array(

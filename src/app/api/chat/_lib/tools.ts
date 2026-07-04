@@ -93,11 +93,15 @@ export type SearchSakeResultItem = {
 // ---------------------------------------------------------------------------
 
 /**
- * proposeSake の入力スキーマ（structured output の境界）。
+ * proposeSake の入力スキーマ（structured output の境界。捏造防止の本番スキーマ）。
  *
  * LLM は searchSake の検索結果にある銘柄の ID と一言理由を返す。スキーマ適合でも
- * 実在しない ID は後段の validateProposedSakeIds で落ちる（二段構えの二段目。
- * scripts/lib/rag-eval/fabrication-guard.test.ts の PoC 雛形を本番スキーマに昇格した）。
+ * 実在しない ID は後段の validateProposedSakeIds で落ちる（二段構えの二段目）。
+ *
+ * ドリフト注意（PHIL S-1）: `scripts/lib/rag-eval/fabrication-guard.test.ts` は scripts が
+ * src/app を import できない（DIRECTORY_STRUCTURE §5.2）ため、このスキーマと**同一構造**の
+ * PoC 雛形を別に持つ。**この本番スキーマそのものでの捏造防止 E2E は `tools.test.ts`** が担う。
+ * 構造を変えるときは両者（fabrication-guard.test.ts の雛形・tools.test.ts）を必ず追随させる。
  */
 export const proposeSakeInputSchema = z.object({
   proposals: z
