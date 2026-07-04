@@ -10,7 +10,7 @@ import {
   embedTexts,
   type EmbedTextsFn,
 } from "@/lib/ai/embedding";
-import { EMBEDDING_MODEL_ID } from "@/lib/ai/models";
+import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL_ID } from "@/lib/ai/models";
 import { closeDb, getDb } from "@/lib/db/client";
 import { selectTagsBySakeIds } from "@/lib/db/queries/sakes";
 import * as schema from "@/lib/db/schema";
@@ -184,8 +184,12 @@ async function upsertEmbeddings(
  * 差分埋め込みの本体。候補取得 → 差分判定 → 変更行のみ埋め込み生成 → upsert。
  *
  * embed は埋め込み関数の注入口（本番は embedTexts、テストはフェイク）。
- * model はモデル ID（既定 EMBEDDING_MODEL_ID）。model カラムに記録して
- * 差し替え時の再生成判定に使う。
+ * model はモデル ID（既定 EMBEDDING_MODEL_ID）で、埋め込み生成（embed へ渡す）と
+ * DB 記録の両方に同一値を使う（生成モデルと記録モデルを一致させる。REVIEW T11 CODE S-1）。
+ *
+ * バッチ単位で「生成→upsert」を繰り返す。upsert は sake_id 競合キーで冪等なため、
+ * 途中のバッチで API が失敗しても成功分は DB に残り、再実行で残りだけ処理される
+ * （大量データで全ロールバックを避け進捗を保持する意図。REVIEW T11 CODE C-4）。
  */
 export async function embedSakes(
   db: Db,
@@ -198,18 +202,30 @@ export async function embedSakes(
 
   let embedded = 0;
   for (const batch of chunk(work, EMBED_BATCH_SIZE)) {
-    const vectors = await embed(batch.map((item) => item.text));
+    const vectors = await embed(
+      batch.map((item) => item.text),
+      model,
+    );
     if (vectors.length !== batch.length) {
       throw new Error(
         `埋め込み結果の件数が入力と一致しません（入力: ${batch.length}, 出力: ${vectors.length}）`,
       );
     }
-    const rows = batch.map((item, index) => ({
-      sakeId: item.sakeId,
-      embedding: vectors[index],
-      sourceHash: item.sourceHash,
-      model,
-    }));
+    const rows = batch.map((item, index) => {
+      // 注入経路（フェイク等）が誤った次元を返しても vector(1536) 列へ入れないよう、
+      // DB へ書く直前に次元を検証する（REVIEW T11 CODE C-2）。
+      if (vectors[index].length !== EMBEDDING_DIMENSIONS) {
+        throw new Error(
+          `埋め込み次元が想定と異なります（期待: ${EMBEDDING_DIMENSIONS}, 実際: ${vectors[index].length}, sakeId: ${item.sakeId}）`,
+        );
+      }
+      return {
+        sakeId: item.sakeId,
+        embedding: vectors[index],
+        sourceHash: item.sourceHash,
+        model,
+      };
+    });
     await upsertEmbeddings(db, rows);
     embedded += rows.length;
   }
@@ -256,7 +272,11 @@ if (isDirectRun) {
     try {
       await main();
     } catch (error) {
-      console.error("埋め込み生成に失敗しました:", error);
+      // AI SDK の APICallError は responseBody/requestBodyValues/ヘッダ（トークン断片や
+      // 埋め込み対象テキスト）を保持しうるため、生オブジェクトをダンプせず message のみ出す
+      // （ログ経由の情報漏洩防止。REVIEW T11 SEC S-1）。
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("埋め込み生成に失敗しました:", message);
       process.exitCode = 1;
     } finally {
       // 接続プールを必ず閉じる（プロセス残留防止）

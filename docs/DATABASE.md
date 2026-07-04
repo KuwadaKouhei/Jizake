@@ -239,7 +239,7 @@ create trigger on_auth_user_created
 |---|---|---|---|---|
 | sake_id | uuid | NOT NULL | — | PK。FK → `sakes.id`（ON DELETE CASCADE）。銘柄と 1:0..1 |
 | embedding | vector(1536) | NOT NULL | — | 説明文の埋め込み（text-embedding-3-small） |
-| model | text | NOT NULL | — | 埋め込みモデル名（例: `text-embedding-3-small`）。モデル差し替え時の再生成対象判定 |
+| model | text | NOT NULL | — | 埋め込みモデル名。AI Gateway の provider/model 形式で記録（例: `openai/text-embedding-3-small`）。モデル差し替え時の再生成対象判定 |
 | source_hash | text | NOT NULL | — | 説明文の SHA-256 ハッシュ（hex）。`embed.ts` が現行 description のハッシュと比較し、**変更行のみ差分再埋め込み** |
 | updated_at | timestamptz | NOT NULL | `now()` | 埋め込み生成日時 |
 

@@ -94,7 +94,8 @@ const orm = drizzle(db, { schema });
 
 // 決定的なフェイク埋め込み: テキスト文字数を基点に 1536 次元を埋める。
 // テキストごとに異なり、同一テキストなら同一ベクトルになる（実 API を模す）。
-const fakeEmbed: EmbedTextsFn = async (texts) =>
+// model は生成には使わないが、注入境界の型（EmbedTextsFn）に合わせて受ける。
+const fakeEmbed: EmbedTextsFn = async (texts, _model) =>
   texts.map((text) => {
     const seed = text.length;
     return Array.from(
@@ -103,14 +104,18 @@ const fakeEmbed: EmbedTextsFn = async (texts) =>
     );
   });
 
-// 埋め込み呼び出し回数と入力を記録するスパイ（差分のみ埋め込むことの検証用）。
-function spyEmbed(): EmbedTextsFn & { calls: string[][] } {
+// 埋め込み呼び出しの入力とモデルを記録するスパイ（差分のみ埋め込む・モデルが
+// 生成と記録で一致することの検証用。REVIEW T11 CODE S-1）。
+function spyEmbed(): EmbedTextsFn & { calls: string[][]; models: string[] } {
   const calls: string[][] = [];
-  const fn = (async (texts) => {
+  const models: string[] = [];
+  const fn = (async (texts, model) => {
     calls.push([...texts]);
-    return fakeEmbed(texts);
-  }) as EmbedTextsFn & { calls: string[][] };
+    models.push(model);
+    return fakeEmbed(texts, model);
+  }) as EmbedTextsFn & { calls: string[][]; models: string[] };
   fn.calls = calls;
+  fn.models = models;
   return fn;
 }
 
@@ -262,6 +267,8 @@ describe("embedSakes（差分埋め込みパイプライン）", () => {
 
     expect(summary.embedded).toBe(1);
     expect(embed.calls.flat()).toHaveLength(1);
+    // 生成に渡すモデルと DB に記録するモデルが一致する（二重真実の防止。CODE S-1）
+    expect(embed.models).toEqual(["openai/text-embedding-3-large"]);
     const [row] = await readEmbeddings();
     expect(row.model).toBe("openai/text-embedding-3-large");
   });

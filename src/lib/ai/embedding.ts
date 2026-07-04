@@ -88,12 +88,15 @@ function assertDimensions(embedding: number[]): number[] {
  * 単一テキストを埋め込む（RAG のクエリ埋め込み等で使用）。
  *
  * DESIGN §5.3 の `embedText(text): Promise<number[]>` を満たす。AI Gateway 経由で
- * text-embedding-3-small を呼ぶ。AI_GATEWAY_API_KEY 未設定時は AI SDK が実行時に
- * 認証エラーを投げる（握りつぶさず伝播させる）。
+ * 指定モデル（既定は EMBEDDING_MODEL_ID）を呼ぶ。AI_GATEWAY_API_KEY 未設定時は
+ * AI SDK が実行時に認証エラーを投げる（握りつぶさず伝播させる）。
  */
-export async function embedText(text: string): Promise<number[]> {
+export async function embedText(
+  text: string,
+  model: string = EMBEDDING_MODEL_ID,
+): Promise<number[]> {
   const { embedding } = await embed({
-    model: gateway.textEmbeddingModel(EMBEDDING_MODEL_ID),
+    model: gateway.textEmbeddingModel(model),
     value: text,
   });
   return assertDimensions(embedding);
@@ -103,14 +106,16 @@ export async function embedText(text: string): Promise<number[]> {
  * 複数テキストをまとめて埋め込む（バッチ埋め込み。scripts/embed.ts で使用）。
  *
  * AI SDK の embedMany は 1 リクエストで複数値を送れるため API 往復を抑えられる。
- * 返り値は入力順を保つ（AI SDK の契約）。
+ * 返り値は入力順を保つ（AI SDK の契約）。生成に使うモデルと、呼び出し側が DB に
+ * 記録するモデルを一致させるため、model を引数で受ける（REVIEW T11 CODE S-1）。
  */
 export async function embedTexts(
   texts: readonly string[],
+  model: string = EMBEDDING_MODEL_ID,
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
   const { embeddings } = await embedMany({
-    model: gateway.textEmbeddingModel(EMBEDDING_MODEL_ID),
+    model: gateway.textEmbeddingModel(model),
     values: [...texts],
   });
   return embeddings.map((embedding) => assertDimensions(embedding));
@@ -120,5 +125,11 @@ export async function embedTexts(
  * embed.ts が受け取る埋め込み関数の型。実 API（embedTexts）を注入する経路と、
  * テストで決定的なフェイクベクトルを注入する経路を切り替えるための境界
  * （TEST_PHILOSOPHY: LLM/埋め込み API はテストで叩かず注入で差し替える）。
+ *
+ * model は「生成に使うモデル」で、呼び出し側（embedSakes）が DB へ記録する model と
+ * 同一値を渡す（生成モデルと記録モデルの二重真実を防ぐ。REVIEW T11 CODE S-1）。
  */
-export type EmbedTextsFn = (texts: readonly string[]) => Promise<number[][]>;
+export type EmbedTextsFn = (
+  texts: readonly string[],
+  model: string,
+) => Promise<number[][]>;
