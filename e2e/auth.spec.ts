@@ -73,9 +73,12 @@ test.describe("導線② ログイン（フルフロー・要 Supabase Auth）",
     await page.getByLabel("パスワード").fill(password);
     await page.getByRole("button", { name: "登録する" }).click();
 
-    // Confirm email 設定次第で (a) 即ログインされ / へ遷移、(b) 確認案内が出る のどちらか。
-    // どちらでも「エラーで止まっていない」ことを主に確認し、次にログイン経路で /history 到達を試す。
-    await page.waitForLoadState("networkidle");
+    // Confirm email 設定次第で (a) 即ログインされヘッダに「ログアウト」が出る、(b) 確認案内
+    // （role="status"）が出る のどちらか。networkidle でなく観測可能な要素で待つ（他 spec と統一。
+    // REVIEW T16 CODE C-3）。
+    await expect(
+      page.getByText("ログアウト").or(page.getByRole("status")),
+    ).toBeVisible({ timeout: 15_000 });
 
     // 明示的にログインしてセッションを確立する（サインアップ直後に未確認セッションでも
     // ログインできる設定なら成功、Confirm email 必須なら失敗し得る。実環境設定に依存）。
@@ -83,7 +86,11 @@ test.describe("導線② ログイン（フルフロー・要 Supabase Auth）",
     await page.getByLabel("メールアドレス").fill(email);
     await page.getByLabel("パスワード").fill(password);
     await page.getByRole("button", { name: "ログイン" }).click();
-    await page.waitForLoadState("networkidle");
+    // ログイン成功ならヘッダに「ログアウト」、失敗（Confirm email 未確認等）なら role="alert"。
+    // どちらも観測可能な要素で待つ（networkidle を避ける。REVIEW T16 CODE C-3）。
+    await expect(
+      page.getByText("ログアウト").or(page.getByRole("alert")),
+    ).toBeVisible({ timeout: 15_000 });
 
     // 保護ページへアクセス。ログインできていれば /history が表示され、
     // Confirm email 必須で未確立なら /login へ誘導される（どちらも「壊れていない」導線）。

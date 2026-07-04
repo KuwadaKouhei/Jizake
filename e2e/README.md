@@ -50,9 +50,13 @@
 npm run test:e2e
 
 # 反復を速くしたい場合: 別ターミナルで本番サーバを起動しておき、build&start をスキップ
+# ポートは playwright.config.ts の PLAYWRIGHT_PORT（既定 3100）と揃える
 npm run build && npm run start -- --port 3100
 PLAYWRIGHT_BASE_URL=http://localhost:3100 npx playwright test
 ```
+
+> webServer の起動ポートは環境変数 `PLAYWRIGHT_PORT`（既定 3100）で変更できる。外部サーバを
+> `PLAYWRIGHT_BASE_URL` で指す場合は、そのサーバのポートと URL を一致させること。
 
 ### フルフローをローカルで走らせる手順（実データ/実キー投入後）
 

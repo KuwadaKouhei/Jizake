@@ -55,6 +55,10 @@ jobs:
   # （未登録なら空文字 → skip なので、Secrets 無しでも安全にグリーンになる）。
   e2e:
     runs-on: ubuntu-latest
+    # トップレベル permissions を継承するが、ジョブ単位でも最小権限を明示する（defense-in-depth。
+    # E2E は PR のコードを実行しうるため。REVIEW T16 SEC S-1）。
+    permissions:
+      contents: read
     # webServer が npm run build && start を実行するため（Playwright config）、単体のタイムアウトを設ける。
     timeout-minutes: 15
     env:
@@ -83,6 +87,9 @@ jobs:
         run: npm run test:e2e
 
       # 失敗時に HTML レポートを成果物として残す（原因調査用）。
+      # 注意（REVIEW T16 SEC S-1）: 現状は Secrets 未登録＝安定動線のみで機微データを扱わない。
+      # 将来フルフロー用 Secrets を登録して CI で実行する運用に切り替える際は、trace
+      # （リクエスト/レスポンス・Cookie を含む）を artifact に含める範囲とアクセス権限を再評価する。
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
