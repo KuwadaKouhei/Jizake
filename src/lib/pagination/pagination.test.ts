@@ -19,6 +19,12 @@ describe("parsePageParam", () => {
     expect(parsePageParam(["3", "9"])).toBe(3);
     expect(parsePageParam(["bad"])).toBe(1);
   });
+
+  it("上限（10000）を超える巨大 page は上限に丸める（巨大 OFFSET の DoS を防ぐ）", () => {
+    expect(parsePageParam("10000")).toBe(10000);
+    expect(parsePageParam("10001")).toBe(10000);
+    expect(parsePageParam("999999999")).toBe(10000);
+  });
 });
 
 describe("totalPageCount", () => {

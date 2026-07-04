@@ -384,9 +384,12 @@ FR-01 受け入れ条件の「一覧・詳細 API で取得できる」は「サ
 ### 5.3 主要インターフェース（シグネチャ）
 
 ```ts
-// 検索（src/app/search/_lib）
-searchSakes(params: SearchParams): Promise<SakeSummary[]>
-// SearchParams = { q?: string; prefectureCode?: string; tagIds?: string[]; page?: number }
+// 検索（条件組み立ての純関数は src/app/search/_lib、クエリは src/lib/db/queries/sakes.ts）
+// 実装では SakeSummary/タグ一括取得を県別一覧と共有するためクエリを db/queries に集約し、
+// タグは tagIds ではなく tagNames（URL 設計 ?tags=辛口・DATABASE §2.7 の filters と統一）、
+// 返り値は総件数つき SearchSakesPage（ページャ）に変更（T07 実装。CODE レビュー S-3）。
+searchSakes(db, query: SakeSearchQuery): Promise<SearchSakesPage>
+// SakeSearchQuery = { q?: string; prefectureCode?: string; tagNames: string[]; page: number }
 
 // 推薦（src/lib/recommend）— 実装差し替え可能な固定IF
 recommend(input: { userId: string | null; limit: number }): Promise<RecommendedSake[]>

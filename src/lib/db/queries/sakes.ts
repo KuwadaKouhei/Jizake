@@ -1,5 +1,17 @@
-import { asc, count, eq, inArray } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  exists,
+  ilike,
+  inArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { alias } from "drizzle-orm/pg-core";
 import { cache } from "react";
 
 import { getDb } from "@/lib/db/client";
@@ -333,3 +345,153 @@ export const getSakesByPrefecture = cache(
   (prefectureCode: string, page = 1): Promise<PrefectureSakesPage> =>
     selectSakesByPrefecture(getDb(), prefectureCode, page),
 );
+
+// ---------------------------------------------------------------------------
+// 検索（FR-06 / DESIGN §2.2）
+// ---------------------------------------------------------------------------
+
+/**
+ * 検索クエリの入力。UI・検索の _lib（SearchCriteria）とは構造的に互換だが、
+ * データアクセス層が上位レイヤーの型を import しない（依存方向 §5.2）ために
+ * ここで独立に定義する。呼び出し側（search/_lib）が SearchCriteria をこの形に渡す。
+ *
+ * - q: 名前キーワード（name / reading を ILIKE で OR 検索）。undefined なら名前条件なし。
+ * - prefectureCode: 都道府県 JIS コード（蔵元 JOIN で絞る）。undefined なら県条件なし。
+ * - tagNames: 味タグ名の配列。複数指定は AND 絞り込み（各タグの EXISTS を AND）。
+ */
+export type SakeSearchQuery = {
+  q?: string;
+  prefectureCode?: string;
+  tagNames: string[];
+  page: number;
+};
+
+/** 検索結果 1 ページ分（県別一覧と同型。総件数でページャを描く）。 */
+export type SearchSakesPage = {
+  sakes: SakeSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+// LIKE のワイルドカード（% _）とエスケープ文字（\）をリテラル一致に無害化する。
+// drizzle の ilike はパターンをパラメータバインドするため注入は起きないが、
+// ユーザーが打った "%" を「任意文字列」として解釈させないための正規化
+// （"獺祭50%" を部分一致検索したときに 50 の後を任意に広げない）。
+function escapeLikePattern(input: string): string {
+  return input.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * 名前・都道府県・味タグの複合検索を 1 ページ分実行する（db を明示的に受ける下位関数）。
+ * テストでは PGlite を差し込むためにこちらを直接呼ぶ。
+ *
+ * 条件の組み立て（DESIGN §2.2）:
+ * - 名前 q: `name ILIKE '%…%' OR reading ILIKE '%…%'`（読み仮名も対象＝表記ゆれに強い）。
+ * - 都道府県: 蔵元 INNER JOIN の breweries.prefecture_code 一致（index 1・2）。
+ * - 味タグ: タグごとに sake_tags×tags の EXISTS を作り、複数タグは AND で結合する
+ *   （「辛口かつ淡麗」で絞り込む。tag_id 起点は index 4）。
+ * - 各条件間も AND。条件が全て空なら WHERE なし＝全件を名前順で返す（DESIGN §2.2 に既定なし。
+ *   空状態で入力を促さず全件表示＋ページャに倒す方針。§4 実施メモに理由）。
+ *
+ * ページネーションと総件数は県別一覧と同型（PAGE_SIZE で limit/offset・別 count クエリ）。
+ * タグはそのページ分の銘柄 ID だけを selectTagsBySakeIds に渡して 1 クエリ一括取得
+ * （N+1 回避）。全体で count 1 + 一覧 1 + タグ 1 の計 3 クエリに収まる。
+ */
+export async function searchSakes(
+  db: Db,
+  query: SakeSearchQuery,
+): Promise<SearchSakesPage> {
+  const conditions: SQL[] = [];
+
+  if (query.q !== undefined) {
+    const pattern = `%${escapeLikePattern(query.q)}%`;
+    // name と reading の OR。reading は NULL 可だが ILIKE は NULL に対し false を返すため
+    // 追加のガードは不要（NULL 行は自然に除外される）。
+    const nameOrReading = or(
+      ilike(sakes.name, pattern),
+      ilike(sakes.reading, pattern),
+    );
+    if (nameOrReading) {
+      conditions.push(nameOrReading);
+    }
+  }
+
+  if (query.prefectureCode !== undefined) {
+    conditions.push(eq(breweries.prefectureCode, query.prefectureCode));
+  }
+
+  // 味タグ AND: タグ 1 件ごとに「その銘柄が当該タグ名を持つ」EXISTS を作り AND で連ねる。
+  // 別名（alias）を使い、複数タグでも各 EXISTS が独立した相関サブクエリになるようにする。
+  for (const [i, tagName] of query.tagNames.entries()) {
+    const st = alias(sakeTags, `st_${i}`);
+    const tg = alias(tags, `tg_${i}`);
+    conditions.push(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(st)
+          .innerJoin(tg, eq(tg.id, st.tagId))
+          .where(and(eq(st.sakeId, sakes.id), eq(tg.name, tagName))),
+      ),
+    );
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(sakes)
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(where);
+
+  const rows = await db
+    .select({
+      id: sakes.id,
+      name: sakes.name,
+      breweryName: breweries.name,
+      prefectureCode: breweries.prefectureCode,
+    })
+    .from(sakes)
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(where)
+    .orderBy(asc(sakes.name), asc(sakes.id))
+    .limit(PAGE_SIZE)
+    .offset((query.page - 1) * PAGE_SIZE);
+
+  const tagsBySakeId = await selectTagsBySakeIds(
+    db,
+    rows.map((row) => row.id),
+  );
+
+  return {
+    sakes: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      breweryName: row.breweryName,
+      prefectureCode: row.prefectureCode,
+      tags: tagsBySakeId.get(row.id) ?? [],
+    })),
+    total,
+    page: query.page,
+    pageSize: PAGE_SIZE,
+  };
+}
+
+/**
+ * 名前・都道府県・味タグの複合検索を 1 ページ分実行する（RSC から直接呼ぶ公開関数）。
+ *
+ * 同一リクエスト内の重複呼び出しで DB クエリが二重に走らないよう React.cache でメモ化する。
+ * cache キーを安定させるため、条件を JSON 文字列化してから内部関数に渡す
+ * （オブジェクト参照ではなく値でメモ化する）。
+ */
+const searchSakesCached = cache(
+  (serialized: string): Promise<SearchSakesPage> =>
+    searchSakes(getDb(), JSON.parse(serialized) as SakeSearchQuery),
+);
+
+export function getSearchSakes(
+  query: SakeSearchQuery,
+): Promise<SearchSakesPage> {
+  return searchSakesCached(JSON.stringify(query));
+}

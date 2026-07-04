@@ -132,7 +132,7 @@
 | 受け入れ条件 | FR-07（選択 UI から一覧に到達） |
 | 依存タスク | T05（sake-card・クエリ基盤）。T07 と並行可 |
 | ブランチ | `feature/T06-prefecture-list` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。① `src/lib/db/queries/sakes.ts` に
 > `selectSakesByPrefecture`（db 注入・テスト用）/`getSakesByPrefecture`（React.cache 公開）を追加し、
@@ -171,7 +171,23 @@
 | 受け入れ条件 | FR-06（全条件）、FR-02（タグをキーに絞り込める） |
 | 依存タスク | T05。T06 と並行可 |
 | ブランチ | `feature/T07-search` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。設計判断:
+> - **味タグは AND 絞り込み**（「辛口かつ淡麗」で絞る）。タグごとに sake_tags×tags の EXISTS を
+>   相関サブクエリで作り AND 連結（DESIGN §2.2 の複合絞り込み意図に沿う。OR より意図が明確）。
+> - **都道府県は単一**（`prefectureCode?: string`）。複数県の要求がないため YAGNI。
+> - **空条件時は全件を名前順で表示**（DESIGN §2.2 に既定なし。空状態で入力を促さず全件＋ページャに倒す）。
+>   検索フォームは常に表示。`isEmptyCriteria` は履歴記録（T09）の「空検索は記録しない」判定にも再利用可。
+> - **ページネーションは T06 の基盤を共有**。`_lib/pagination.ts` を `src/lib/pagination/pagination.ts`
+>   へ責務名昇格し、県別一覧（T06）と検索（T07）の 2 機能で共有（機能固有 `_lib` 同士のパス依存を避ける。
+>   DIRECTORY_STRUCTURE §5.3）。T06 側の import も更新済み。page 番号の正規化・上限（DoS 対策）も
+>   `parsePageParam` に一本化。
+> - **検索クエリ `searchSakes` は当初計画の `_lib/search-sakes.ts` を作らず `src/lib/db/queries/sakes.ts`
+>   に集約**（`SakeSummary`・タグ一括取得を県別一覧と共有＝DIR-6 の横断クエリ判定。DESIGN §5.3・
+>   DIRECTORY_STRUCTURE §2 ツリーも実配置に更新。CODE/PHIL レビュー指摘）。タグは `tagIds` でなく
+>   `tagNames`（URL `?tags=` と DATABASE §2.7 filters に統一）、味タグは集合としてソート正規化（決定性）。
+> - 実データ投入は Supabase 実プロジェクト作成後（T02 残作業）。ロジックは PGlite で検証済み。
 
 ### T08: 認証（サインアップ・ログイン・ログアウト）
 

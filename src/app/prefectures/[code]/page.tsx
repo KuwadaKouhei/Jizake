@@ -5,8 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { SakeCard } from "@/components/sake-card";
 import { PREFECTURES, findPrefectureByCode } from "@/lib/constants/prefectures";
 import { getSakesByPrefecture } from "@/lib/db/queries/sakes";
-
-import { parsePageParam, totalPageCount } from "./_lib/pagination";
+import { parsePageParam, totalPageCount } from "@/lib/pagination/pagination";
 
 /**
  * 都道府県別地酒一覧ページ（/prefectures/[code]）— カタログの縦スライス（FR-07）。
