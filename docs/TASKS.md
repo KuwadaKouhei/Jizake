@@ -630,7 +630,55 @@
 | 受け入れ条件 | FR-08（安定運用）、非機能（コスト・可用性） |
 | 依存タスク | T14, T08 |
 | ブランチ | `feature/T15-chat-guards` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜④完了。T14 の route.ts を壊さず（捏造防止フローは維持）拡張した。
+> 作成/変更ファイルと設計判断:
+> - **① コスト上限ガード（`_lib/conversation-guard.ts`）**: 往復数上限を定数化
+>   （`MAX_CONVERSATION_TURNS=10`。DESIGN §6.3）。**往復数の数え方＝履歴内の user ロール
+>   メッセージ数**（ステートレスで毎回全履歴が来るため、user 発話数＝これまでの往復数。ツール往復は
+>   1 リクエスト内で完結し履歴の user メッセージを増やさないので水増しにならない）。判定は純関数
+>   `exceedsConversationLimit`（上限「超過」で倒し、ちょうど 10 回までは応答）。超過時は **LLM を呼ばず**
+>   検索誘導（`TURN_LIMIT_MESSAGE`＋data-fallback の検索 URL）を返しコストの暴走を止める。メッセージ長
+>   上限（`MAX_MESSAGE_TEXT_LENGTH=4000`）・part 数上限・`maxOutputTokens=1024` は T14 で導入済みのため
+>   定数を確認して据え置き（Zod／streamText 側）。
+> - **② レート制限（`_lib/rate-limit.ts`）**: ログインユーザーは DB カウントで 20 会話/日
+>   （`MAX_SESSIONS_PER_DAY`）。**カウントクエリ＝chat_sessions を user_id＋created_at>=当日0時で
+>   count**（index 8: user_id, created_at DESC を利用）。判定の純関数 `isRateLimited`（上限以上で true）と
+>   DB カウント `countTodaySessions(db, userId, now)` を分離してテスト（本人分のみ・当日分のみ・now 注入）。
+>   公開関数 `isChatRateLimited` は user_id をセッションから強制取得（主防御）、匿名は対象外で常に false
+>   （決定 D4/D5）。カウント失敗時は可用性優先で false（正規ユーザーを止めない）。
+> - **③ タイムアウト/フォールバック（route.ts＋`_lib/fallback-search.ts`＋chat-messages.tsx）**:
+>   **実装方式＝`streamText` の `abortSignal: AbortSignal.timeout(TIMEOUT_MS=30_000)`＋route の
+>   `export const maxDuration=60`**（関数打ち切りが LLM タイムアウトより先に来ないよう余裕を持たせる）。
+>   タイムアウト/障害は streamText の `onError` で捕捉し、エラーパートに加え **ヒアリング内容から
+>   組み立てた検索誘導（data-fallback）** を writer に送る。検索 URL は `buildFallbackSearchHref`
+>   （純関数）が user 発話から**既知語彙（味タグ 6 種・都道府県名）に完全一致した条件のみ**抽出し、
+>   `toSearchQueryString` で `/search?...`（必ず内部パス＝オープンリダイレクトなし）を組む
+>   （自由文 q はフォールバックでは使わず、未知語を URL に載せない安全側の判断）。UI は data-fallback を
+>   `FallbackNotice`（誘導文言＋「検索ページで探す」Link）で描画。コスト上限①・レート制限②の超過時も
+>   同じ data-fallback を LLM を呼ばずに返す（`fallbackStreamResponse`）。
+> - **④ セッション保存（`_lib/persist-session.ts`＋tools.ts）**: **保存タイミング＝proposeSake が
+>   検証済みカードを送る時点。粒度＝1 会話 = 1 セッション**（ステートレスで全履歴が来るので、確定提案時に
+>   その時点の全会話を chat_sessions 1 行＋chat_messages にまとめて保存）。`proposed_sake_ids` は
+>   `validateProposedSakeIds` を通した**検証済み ID のみ**を末尾 assistant メッセージに非正規化（DB-6・
+>   CHECK: assistant 限定）。公開関数 `saveConfirmedProposal` は **user_id をセッションから強制**（主防御。
+>   引数で受けない）、**匿名は保存しない**（決定 D4）。純関数 `buildPersistableMessages`（UIMessage→保存
+>   レコード・提案 ID 付与）と DB 保存 `insertConfirmedSession(db, userId, ...)` を分離してテスト
+>   （本人のみ・検証済み ID のみ・提案が空なら保存しない）。保存失敗はストリームに影響させずログのみ
+>   （履歴記録 T09 と同じ姿勢・握りつぶさない）。
+> - **user_id 二段防御（DESIGN §6.2 / 履歴と同じ姿勢）**: レート制限・保存の公開関数は user_id を引数で
+>   受けず getCurrentUser から強制取得（一段目）。chat_sessions/chat_messages の RLS が二段目（DATABASE §4.2）。
+> - テストは純関数（conversation-guard 6・fallback-search 15・rate-limit の isRateLimited/startOfToday 4・
+>   persist の buildPersistableMessages 4）＋ PGlite 統合（rate-limit の countTodaySessions 4〔本人のみ・
+>   当日のみ・0 件〕・persist の insertConfirmedSession 3〔本人 user_id・検証済み ID のみ・空提案は保存しない〕）＋
+>   tools の保存注入検証（確定提案で保存を呼ぶ・0 件は呼ばない）＋ UI（data-fallback の誘導文言・内部 /search
+>   リンク描画）で実施（全 418 テスト。lint 0 警告 / typecheck / format:check / build グリーン。T14 の 384 から +34）。
+> - **残作業（実 API 疎通。実キー未設定のため未実施）**: `.env.local` に `AI_GATEWAY_API_KEY`＋Supabase 接続情報を
+>   設定し、① 実際に 30 秒タイムアウトで onError→data-fallback 導線が出ること ② 実 LLM 往復での確定提案が
+>   chat_sessions/chat_messages に保存されること（RLS 実効遮断含む）③ ログインユーザーの 20 会話/日カウントが
+>   実 DB で効くこと、を疎通確認する。ロジックは PGlite＋モックで検証済み（TEST_PHILOSOPHY: LLM/実 DB は
+>   モック・注入）。E2E（チャット 1 往復・LLM モックエンドポイント）は T16。
 
 ### T16: E2E テスト整備（主要 3 導線）
 
