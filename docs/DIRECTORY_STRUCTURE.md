@@ -68,6 +68,7 @@ Jizake/
 │  ├─ seed.ts                          # seed-data/ の手作業データ投入（冪等 upsert）
 │  ├─ seed.test.ts                     # データ妥当性 + PGlite 統合（冪等・さけのわ共存・manual 付与）
 │  ├─ embed.ts                         # 説明文の差分埋め込み生成
+│  ├─ rag-poc.ts                       # RAG 精度 PoC 実行（使い捨て。実/ダミー埋め込み・T13⑤）
 │  └─ lib/                             # スクリプト専用ヘルパ（データソース別サブディレクトリ）
 │     ├─ sakenowa/
 │     │  ├─ client.ts                  # さけのわ API 取得
@@ -75,8 +76,14 @@ Jizake/
 │     │  ├─ flavor-to-tags.ts          # フレーバー6軸→味タグ変換（純関数）
 │     │  ├─ flavor-to-tags.test.ts
 │     │  └─ fixtures/                  # 保存済みレスポンス（テスト用フィクスチャ）
-│     └─ seed/                         # 手作業シード（データソース）の境界
-│        └─ schema.ts                  # seed-data/ の Zod 検証・型（境界）
+│     ├─ seed/                         # 手作業シード（データソース）の境界
+│     │  └─ schema.ts                  # seed-data/ の Zod 検証・型（境界）
+│     └─ rag-eval/                     # RAG 精度 PoC 評価ハーネス（使い捨て。T13①②③）
+│        ├─ metrics.ts                 # recall@k / MRR / hit@k（純関数）
+│        ├─ eval-set.ts                # 質問10パターン×期待銘柄（seed-data の実在銘柄）
+│        ├─ fake-embedding.ts          # 決定的ダミー埋め込み（実キー不在時）
+│        ├─ harness.ts                 # retriever へ注入して評価を走らせ集計
+│        └─ *.test.ts                  # 純関数＋PGlite 統合（捏造防止 E2E 含む）
 ├─ seed-data/                          # 手作業シード（説明文・種別タグ・読み仮名・URL・価格帯）。JSON/TS でレビュー可能
 │  └─ sakes.ts                         # 主要銘柄の自作説明文つきデータ（ロジックは置かない）
 ├─ src/
