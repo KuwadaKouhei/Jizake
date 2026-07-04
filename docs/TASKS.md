@@ -49,8 +49,11 @@
 > **残作業（① の一部。Supabase 実プロジェクト未作成のため持ち越し）**:
 > 1. Supabase プロジェクト作成 → `.env.local` に接続情報を設定 → `npm run db:migrate` で適用
 >    （詳細手順は `.env.example` のコメント参照）
-> 2. GitHub Actions secret `DATABASE_URL` の登録（ping-supabase.yml 用。未登録の間は安全にスキップ）
+> 2. GitHub Actions secrets `SUPABASE_URL`・`SUPABASE_ANON_KEY`（＋任意で `DATABASE_URL`）の登録
+>    （ping-supabase.yml 用。未登録の間は安全にスキップ）
 > 3. Vercel プロジェクト接続（T01 からの持ち越し。ダッシュボード操作が必要）
+> 4. ping の実効性確認: 無操作判定は API アクティビティ基準の報告があるため、初回の停止期限（7日）前に
+>    Supabase ダッシュボードで一時停止予告が出ていないことを確認する（レビュー指摘 CODE S-3）
 
 ### T03: さけのわデータインポート
 

@@ -1,5 +1,7 @@
 # Supabase 無料枠の「7 日間無操作で一時停止」対策の定期 ping（TECH_STACK §8、TASKS T02 ⑦）。
-# Actions secret DATABASE_URL が未登録の間（実プロジェクト作成前）は安全にスキップする。
+# 無操作判定は Supabase プラットフォーム経由の API アクティビティが基準という報告が複数あるため、
+# PostgREST（REST API）経由の ping を主とし、DATABASE_URL があれば DB 直接 ping も併用する。
+# Actions secrets が未登録の間（実プロジェクト作成前）は安全にスキップする。
 name: Ping Supabase
 
 on:
@@ -14,12 +16,29 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping database
+      - name: Ping REST API (PostgREST)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY secret が未登録のためスキップします（Supabase プロジェクト作成後に登録する。.env.example 参照）"
+            exit 0
+          fi
+          # tags は RLS で公開 SELECT が許可されたカタログテーブル（DATABASE.md §4.2）
+          curl --fail --silent --show-error \
+            "$SUPABASE_URL/rest/v1/tags?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            --output /dev/null
+          echo "REST ping OK"
+
+      - name: Ping database (optional)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL secret が未登録のためスキップします（Supabase プロジェクト作成後に登録する。.env.example 参照）"
+            echo "DATABASE_URL secret が未登録のため DB 直接 ping はスキップします"
             exit 0
           fi
           # ubuntu-latest ランナーに同梱の psql で軽量クエリを 1 回実行する
