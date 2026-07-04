@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1783136720792,
+      "tag": "0000_enable-pgvector",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783136723447,
+      "tag": "0001_init-schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783136726086,
+      "tag": "0002_auth-rls-hnsw",
+      "breakpoints": true
+    }
+  ]
+}
