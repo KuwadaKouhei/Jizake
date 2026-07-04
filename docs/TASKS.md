@@ -369,7 +369,43 @@
 | 受け入れ条件 | FR-08 の基盤（知識源の埋め込み） |
 | 依存タスク | T04（説明文）。T05〜T10 と並行可 |
 | ブランチ | `feature/T11-embedding-pipeline` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。設計判断と実装内容:
+> - **AI SDK v6（Gateway 経由）**: `ai@^6.0.219`（TECH_STACK §5 の 6 系採用・v7 見送りに準拠）を
+>   依存に追加。`src/lib/ai/embedding.ts` に AI SDK の import を閉じ込め（DIRECTORY_STRUCTURE §5.2:
+>   AI SDK の import は lib/ai と api/chat のみ許可）、`embed`/`embedMany` を `gateway.textEmbeddingModel`
+>   に渡して呼ぶ。モデル ID は `src/lib/ai/models.ts` の定数 `EMBEDDING_MODEL_ID="openai/text-embedding-3-small"`・
+>   `EMBEDDING_DIMENSIONS=1536`（差し替えはこの 1 箇所。DIRECTORY_STRUCTURE §5.1）。
+> - **埋め込み対象テキストの構成**（`buildEmbeddingText` 純関数）: 「銘柄名＋蔵元＋都道府県名＋説明文＋タグ」を
+>   ラベル付き（`銘柄: / 蔵元: / 都道府県: / 説明: / タグ:`）の日本語 1 テキストに組み立てる。都道府県は
+>   `findPrefectureByCode`（既存定数を再利用）でコード→県名に解決し、未解決・タグなしは行ごと省く。タグは
+>   決定性のため名前順ソート（並び替えでハッシュがブレない）。DB スキーマ非依存の入力型 `EmbeddingSource` にし、
+>   `scripts/embed.ts` が銘柄行から詰める。
+> - **sourceHash アルゴリズム＝SHA-256(hex)**（`computeSourceHash` 純関数。DATABASE.md §2.10 が SHA-256 hex と規定）:
+>   埋め込みテキスト全体をハッシュ。説明文だけでなくタグ・蔵元・都道府県の変化も検知する（テキストが変われば
+>   再埋め込みされる）。DESIGN §2.7「説明文のハッシュ」を、埋め込み対象テキスト＝差分基準に統一した。
+> - **差分埋め込み**（`selectWorkItems` 純関数＋`embedSakes`）: description 非空の銘柄を候補にし、既存
+>   `sake_embeddings`（sakeId→{sourceHash, model}）と突き合わせ、**未登録・source_hash 変化・model 変化**の
+>   いずれかに該当する銘柄だけ埋め込み生成→`sake_id` 競合キーで冪等 upsert（`model` 列に使用モデルを記録）。
+>   差分なしは API を一切叩かない（DESIGN §6.3 のコスト最小化）。既存 `seed.ts`/`import-sakenowa.ts` の
+>   chunk・isDirectRun・closeDb（try/finally）パターンと `selectTagsBySakeIds`（タグ一括取得・N+1 回避）を再利用。
+> - **キー未設定時の挙動**: `AI_GATEWAY_API_KEY` は gateway プロバイダが実行時に参照するため import・build 時は
+>   不要（未設定でもモジュール読込・ビルドは壊れない＝閲覧/検索など匿名機能に影響しない）。`npm run embed` の
+>   main は埋め込み生成前にキーの有無を明示チェックし、未設定なら DB を叩く前に明確なエラーで停止する
+>   （握りつぶさない）。`.env.example` に用途・取得手順を追記。
+> - **注入可能性（TEST_PHILOSOPHY: 実 API を叩かない）**: `embedSakes(db, embed, model)` は埋め込み関数
+>   （`EmbedTextsFn`）を注入口にし、本番は `embedTexts`（実 API）、テストは決定的なフェイクベクトル（1536次元）を
+>   渡す。実 API 呼び出し部分はテストで一切実行しない。
+> - テストは純関数（テキスト組み立て: 5 要素の包含・決定性・タグ順不同同一・タグ/都道府県省略／sourceHash:
+>   hex 形式・同一入力同一・説明文/タグ変化検知）＋差分判定（未登録・差分なし・hash 変化・model 変化）＋
+>   PGlite 統合（初回全件・説明文なし除外・2 回目差分ゼロ・変更行のみ再埋め込みと hash 更新・model 差替で全件・
+>   タグ変化・1536次元格納。フェイク埋め込み注入）で実施（全 309 テスト。lint/typecheck/format:check/build グリーン。
+>   T10 の 290 から +19）。
+> - **残作業**: 実 API 疎通（AI Gateway で text-embedding-3-small を実際に叩く）は `AI_GATEWAY_API_KEY` 実キーと
+>   Supabase 実 DB（T02 残作業の投入済みデータ）が要る。手順: `.env.local` に `AI_GATEWAY_API_KEY` を設定 →
+>   `npm run seed` で説明文投入 → `npm run embed` で埋め込み生成。日本語埋め込み精度の検証（FEASIBILITY R3/R4）と
+>   retriever 重みの確定は **T13 の PoC** で実施する（本タスクはパイプラインの整備まで）。
 
 ### T12: RAG リトリーバ＋捏造防止検証
 
