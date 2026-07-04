@@ -6,6 +6,8 @@ import type { SakeSummary } from "@/lib/db/queries/sakes";
 import { retrieve as defaultRetrieve } from "@/lib/rag/retriever";
 import { validateProposedSakeIds as defaultValidateProposedSakeIds } from "@/lib/rag/validate-proposed";
 
+import { saveConfirmedProposal as defaultSaveConfirmedProposal } from "./persist-session";
+
 /**
  * RAG チャットの generator が使うツール定義（DESIGN §2.6・TASKS T14 ②）。
  *
@@ -40,17 +42,31 @@ export type ProposedSakesData = {
 };
 
 /**
+ * コスト上限超過・LLM 障害時にサーバが送る「フォールバック導線」データ（T15 ①③・DESIGN §6.3/§6.4）。
+ * UI は message（誘導文言）を表示し、searchHref（必ず内部の /search 始まり）を検索リンクにする。
+ */
+export type FallbackData = {
+  /** ユーザー向けの誘導文言（コスト上限超過・タイムアウト等）。 */
+  message: string;
+  /** ヒアリング内容から組み立てた検索誘導 href（内部パス。省略時は導線なし）。 */
+  searchHref?: string;
+};
+
+/**
  * RAG チャットで使う UIMessage 型（custom data part を型付けする）。
- * サーバ（route.ts）とクライアント（useChat）で共有し、`data-proposedSakes` の
+ * サーバ（route.ts）とクライアント（useChat）で共有し、data part の
  * ペイロード型を一致させる（AI SDK v6 の UIMessage ジェネリクスに data 型を渡す）。
  */
 export type ChatUIMessage = UIMessage<
   never,
-  { proposedSakes: ProposedSakesData }
+  { proposedSakes: ProposedSakesData; fallback: FallbackData }
 >;
 
 /** custom data part の type 名（AI SDK は `data-<name>` を予約プレフィックスにする）。 */
 export const PROPOSED_SAKES_DATA_TYPE = "data-proposedSakes" as const;
+
+/** フォールバック導線の data part type 名。 */
+export const FALLBACK_DATA_TYPE = "data-fallback" as const;
 
 // ---------------------------------------------------------------------------
 // searchSake の入力・出力（境界の型検証）
@@ -132,13 +148,23 @@ export type RetrieveFn = typeof defaultRetrieve;
 /** DB 存在検証の注入口（本番は validateProposedSakeIds、テストはフェイク）。 */
 export type ValidateProposedSakeIdsFn = typeof defaultValidateProposedSakeIds;
 
+/** 確定提案セッション保存の注入口（本番は saveConfirmedProposal、テストはフェイク）。 */
+export type SaveConfirmedProposalFn = typeof defaultSaveConfirmedProposal;
+
 export type CreateChatToolsDeps = {
   /** 検証済みカードのデータパートを書き込むストリームライタ。 */
   writer: UIMessageStreamWriter<ChatUIMessage>;
+  /**
+   * 保存対象の会話履歴（このリクエストで受け取った全メッセージ。ステートレスで毎回全履歴が来る）。
+   * proposeSake が確定提案を送る時点で、この履歴＋検証済み ID を chat_sessions に保存する（T15 ④）。
+   */
+  messages?: readonly ChatUIMessage[];
   /** ハイブリッド検索（既定は本番 retriever）。 */
   retrieve?: RetrieveFn;
   /** 提案 ID の DB 存在検証（既定は本番 validateProposedSakeIds）。 */
   validateProposedSakeIds?: ValidateProposedSakeIdsFn;
+  /** 確定提案の DB 保存（既定は本番 saveConfirmedProposal。ログイン時のみ・匿名は no-op）。 */
+  saveConfirmedProposal?: SaveConfirmedProposalFn;
 };
 
 /**
@@ -150,8 +176,10 @@ export type CreateChatToolsDeps = {
  */
 export function createChatTools({
   writer,
+  messages = [],
   retrieve = defaultRetrieve,
   validateProposedSakeIds = defaultValidateProposedSakeIds,
+  saveConfirmedProposal = defaultSaveConfirmedProposal,
 }: CreateChatToolsDeps) {
   return {
     searchSake: tool({
@@ -194,6 +222,11 @@ export function createChatTools({
             type: PROPOSED_SAKES_DATA_TYPE,
             data: { sakes: verified },
           });
+
+          // 確定提案セッションの保存（T15 ④・決定 D4）: ログインユーザーの確定提案のみ
+          // chat_sessions/chat_messages へ検証済み ID とともに保存する。匿名は no-op。
+          // 保存失敗は応答（ストリーム）に影響させない（saveConfirmedProposal がログのみで吸収）。
+          await saveConfirmedProposal(messages, verified);
         }
 
         // LLM には検証を通った件数だけを返す（0 件なら条件緩和を促すため 0 を渡す）。

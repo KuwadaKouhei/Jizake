@@ -81,11 +81,19 @@ describe("proposeSake（捏造防止の二段目）", () => {
         .map((id) => existing.get(id))
         .filter((s): s is SakeSummary => s !== undefined);
     });
+    const saveConfirmedProposal =
+      vi.fn<
+        (
+          messages: readonly ChatUIMessage[],
+          verified: readonly SakeSummary[],
+        ) => Promise<void>
+      >();
 
     const tools = createChatTools({
       writer,
       retrieve: vi.fn(),
       validateProposedSakeIds,
+      saveConfirmedProposal,
     });
 
     const result = await tools.proposeSake.execute!(
@@ -116,16 +124,23 @@ describe("proposeSake（捏造防止の二段目）", () => {
     };
     expect(part.type).toBe(PROPOSED_SAKES_DATA_TYPE);
     expect(part.data.sakes.map((s) => s.id)).toEqual([REAL_A, REAL_B]);
+
+    // 確定提案が出たら検証済みカードとともにセッション保存を呼ぶ（T15 ④・ログイン時のみ）。
+    expect(saveConfirmedProposal).toHaveBeenCalledTimes(1);
+    const savedSakes = saveConfirmedProposal.mock.calls[0]![1];
+    expect(savedSakes.map((s) => s.id)).toEqual([REAL_A, REAL_B]);
   });
 
-  it("全提案が捏造（検証で 0 件）ならデータパートを書かず proposedCount 0 を返す", async () => {
+  it("全提案が捏造（検証で 0 件）ならデータパートを書かず、保存もせず proposedCount 0 を返す", async () => {
     const { writer, written } = createFakeWriter();
     const validateProposedSakeIds = vi.fn(async () => [] as SakeSummary[]);
+    const saveConfirmedProposal = vi.fn(async () => {});
 
     const tools = createChatTools({
       writer,
       retrieve: vi.fn(),
       validateProposedSakeIds,
+      saveConfirmedProposal,
     });
 
     const result = await tools.proposeSake.execute!(
@@ -136,6 +151,8 @@ describe("proposeSake（捏造防止の二段目）", () => {
     expect(result).toEqual({ proposedCount: 0 });
     // 0 件なら空のカードデータを載せない（UI で「提案なし」の扱いにできる）。
     expect(written).toHaveLength(0);
+    // 確定提案が無い（0 件）なら保存も呼ばない（決定 D4: 確定提案のみ保存）。
+    expect(saveConfirmedProposal).not.toHaveBeenCalled();
   });
 });
 
@@ -181,6 +198,7 @@ describe("searchSake（retriever を呼ぶ）", () => {
       writer,
       retrieve,
       validateProposedSakeIds: vi.fn(),
+      saveConfirmedProposal: vi.fn(),
     });
 
     const result = (await tools.searchSake.execute!(
@@ -228,6 +246,7 @@ describe("searchSake（retriever を呼ぶ）", () => {
       writer,
       retrieve,
       validateProposedSakeIds: vi.fn(),
+      saveConfirmedProposal: vi.fn(),
     });
 
     const result = (await tools.searchSake.execute!(
