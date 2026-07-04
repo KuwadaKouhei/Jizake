@@ -61,16 +61,19 @@ export async function signUp(
 ): Promise<AuthActionState> {
   const next = readNext(formData);
 
-  const result = await runCredentialAction(formData, async ({ email, password }) => {
-    let supabase;
-    try {
-      supabase = await createSupabaseServerClient();
-    } catch {
-      return { error: authUnavailableMessage() };
-    }
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: error ? signUpErrorMessage(error.message) : null };
-  });
+  const result = await runCredentialAction(
+    formData,
+    async ({ email, password }) => {
+      let supabase;
+      try {
+        supabase = await createSupabaseServerClient();
+      } catch {
+        return { error: authUnavailableMessage() };
+      }
+      const { error } = await supabase.auth.signUp({ email, password });
+      return { error: error ? signUpErrorMessage(error.message) : null };
+    },
+  );
 
   if (!result.ok) {
     return { error: result.error };
@@ -85,19 +88,22 @@ export async function signIn(
 ): Promise<AuthActionState> {
   const next = readNext(formData);
 
-  const result = await runCredentialAction(formData, async ({ email, password }) => {
-    let supabase;
-    try {
-      supabase = await createSupabaseServerClient();
-    } catch {
-      return { error: authUnavailableMessage() };
-    }
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error: error ? signInErrorMessage() : null };
-  });
+  const result = await runCredentialAction(
+    formData,
+    async ({ email, password }) => {
+      let supabase;
+      try {
+        supabase = await createSupabaseServerClient();
+      } catch {
+        return { error: authUnavailableMessage() };
+      }
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      return { error: error ? signInErrorMessage() : null };
+    },
+  );
 
   if (!result.ok) {
     return { error: result.error };

@@ -48,7 +48,6 @@ export function sanitizeRedirectPath(
   if (target.includes("\\")) return null;
 
   // 制御文字（改行・タブ・NUL 等 U+0000..U+001F）を含むものを弾く
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f]/.test(target)) return null;
 
   return target;

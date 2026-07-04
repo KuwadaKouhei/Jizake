@@ -33,8 +33,7 @@ export const credentialsSchema = z.object({
 export type Credentials = z.infer<typeof credentialsSchema>;
 
 export type ValidationResult =
-  | { success: true; data: Credentials }
-  | { success: false; error: string };
+  { success: true; data: Credentials } | { success: false; error: string };
 
 /**
  * FormData 相当の生入力から認証情報を検証する。

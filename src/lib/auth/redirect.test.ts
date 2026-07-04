@@ -79,9 +79,7 @@ describe("resolveAfterLogin", () => {
 
 describe("buildLoginRedirect", () => {
   it("元パスを next にエンコードして付与する", () => {
-    expect(buildLoginRedirect("/history")).toBe(
-      "/login?next=%2Fhistory",
-    );
+    expect(buildLoginRedirect("/history")).toBe("/login?next=%2Fhistory");
   });
 
   it("危険なパスは next を付けず /login にする", () => {

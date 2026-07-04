@@ -11,6 +11,13 @@ vi.mock("next/font/google", () => ({
   Geist_Mono: () => ({ variable: "--font-geist-mono", className: "" }),
 }));
 
+// SiteHeader は async Server Component（認証状態を取得）になったため、
+// RootLayout の SSR 出力を同期検証できるよう同期スタブに差し替える。
+// ヘッダー本体（ログイン状態別表示）は site-header.test.tsx で検証する。
+vi.mock("@/components/site-header", () => ({
+  SiteHeader: () => <header>Jizake</header>,
+}));
+
 // RootLayout は <html> ごと返すため、DOM へのマウントではなく
 // SSR 出力（静的マークアップ）を文書としてパースして検証する
 function renderLayoutDocument() {

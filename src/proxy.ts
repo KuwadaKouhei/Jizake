@@ -3,11 +3,12 @@ import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/auth/session";
 
 /**
- * middleware — 全リクエストで Supabase セッションを更新し、保護ルート（/history）を
- * ガードする（DESIGN §2.3 / DIRECTORY_STRUCTURE §2）。実処理は @supabase/ssr
- * 標準パターンのヘルパ `updateSession`（src/lib/auth/session.ts）に委譲する。
+ * proxy（旧 middleware）— 全リクエストで Supabase セッションを更新し、保護ルート
+ * （/history）をガードする（DESIGN §2.3 / DIRECTORY_STRUCTURE §2 の注記どおり、
+ * Next.js 16 で deprecated になった `middleware` から `proxy` へ改名）。
+ * 実処理は @supabase/ssr 標準パターンのヘルパ `updateSession` に委譲する。
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   return updateSession(request);
 }
 
