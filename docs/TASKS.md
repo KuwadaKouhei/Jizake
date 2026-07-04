@@ -416,7 +416,7 @@
 | 受け入れ条件 | FR-08（提案は DB 実在の銘柄のみ＝捏造防止の一段目・二段目の部品） |
 | 依存タスク | T11 |
 | ブランチ | `feature/T12-rag-retriever` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: 作成 `src/lib/rag/retriever.ts`・`validate-proposed.ts` ＋各テスト。
 > ③味タグ・都道府県の抽出は retriever が「渡された条件＋freeText」で動くため専用ファイルを持たない
@@ -487,7 +487,46 @@
 | 受け入れ条件 | FR-08（品質リスク R3/R4 の解消。受け入れ条件を満たせる見込みの確定） |
 | 依存タスク | T12 |
 | ブランチ | `feature/T13-rag-poc` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑥完了。実 API キー（AI Gateway）・実 Supabase 未設定のため、
+> 「PoC の枠組み（評価ハーネス）＋ B-1 の実装」を成果物とし、精度の絶対値・重み確定・実 LLM 往復は
+> 実キー投入後の残作業として `docs/RAG_POC.md` に明記した。作成物と設計判断:
+> - **⑥ B-1（HNSW クエリ形状の分離。REVIEW T12 PERF B-1 の移管）**: `retrieveSakeCandidates` を
+>   「ANN 経路（`sake_embeddings` 起点の素の `<=>` ORDER BY LIMIT で HNSW を活かす）とタグ経路
+>   （タグ/都道府県/価格帯の SQL 絞り込み）の**和集合＋スコアリング**」に分離。ANN 経路は CASE 式・
+>   LEFT JOIN・複合 ORDER BY を挟まず HNSW（`vector_cosine_ops`）が効く形状にし、タグ経路は
+>   `sake_embeddings` を JOIN しないため埋め込み無し銘柄も母集団に残す。両経路の sakeId を Set で
+>   和集合にし、`inArray` で銘柄要約・タグを一括取得（N+1 回避）、`combineScore` で統合、最終順位は
+>   スコア降順→距離→人気→名前→id の安定比較。**公開シグネチャ `retrieve(query)`・戻り値
+>   `SakeCandidate[]` は不変**（T13⑥・REVIEW B-1 の制約）。機能等価は T12 の既存 18 テストが分離後も
+>   全パス＋B-1 追加 5 テスト（和集合・距離昇順・埋め込み無しをタグで拾う・ANN にも県フィルタ・重複畳み）で担保。
+>   **HNSW インデックス使用可否は PGlite では確認不能**（プランナ挙動が実 Postgres と一致保証なし）なため、
+>   実 Postgres の `EXPLAIN ANALYZE` 確認手順を `docs/RAG_POC.md §8.4` に記録（実データ規模で
+>   `Index Scan ... hnsw` を確認）。
+> - **①②評価ハーネス**: `scripts/lib/rag-eval/`（使い捨て・本番バンドル対象外）に metrics（recall@k/MRR/
+>   hit@k の純関数）・eval-set（質問 10 パターン×期待銘柄。seed-data の実在銘柄名で表現し実行時に実 ID 解決）・
+>   fake-embedding（決定的ダミー埋め込み。実キー不在時のフォールバック）・harness（retriever へ埋め込みを
+>   `EmbedQueryFn` 注入して評価）を整備。`scripts/rag-poc.ts`＋`npm run rag:poc` で実行（実キーありは実埋め込み、
+>   無ければダミー）。**ダミーでは精度の絶対値は無意味**だが「ハーネスが動く・指標が計算される・実キーでの
+>   実行手順」を確立（PGlite 統合テストで、期待銘柄名の seed-data 整合・end-to-end 動作・配線妥当性を検証）。
+> - **③捏造防止 E2E**: `scripts/lib/rag-eval/fabrication-guard.test.ts` で、proposeSake の structured output を
+>   模したダミー LLM 応答（実在 ID＋存在しない ID＋UUID 非書式を混ぜる）を Zod でパース→
+>   `validateProposedSakeIds` で DB 存在検証し、捏造 ID がカード化前に落ちる・実在は入力順を保つ・全捏造なら
+>   0 件を確認。実 LLM でのヒアリング往復は実キー投入後の残作業。
+> - **④プロンプト初版**: `src/lib/ai/prompts.ts` に `CHAT_SYSTEM_PROMPT`（ヒアリング 2〜3 問→searchSake→
+>   検索結果内の銘柄のみ proposeSake、捏造禁止、0 件は条件緩和、インジェクション拒否）を定数化。上限数も定数化し
+>   `prompts.test.ts` で整合を担保（T14 が使用）。
+> - **⑤スクリプト隔離**: 評価ハーネス・PoC スクリプトは `scripts/` 配下で next build 非対象（build のルート一覧に
+>   出ないことを確認）。`vitest`/`tsconfig` は `scripts/**` を型チェック・テスト対象に含むためロジックは検証可。
+> - **retriever 重み**: 暫定 0.7/0.3 を据え置き、実埋め込み投入後に recall@5/MRR で確定する方針を
+>   `docs/RAG_POC.md §9` に記録（DESIGN §9 更新）。
+> - テストは純関数（metrics 7・fake-embedding 5・prompts 5・combineScore 4）＋ PGlite 統合（retriever 23〔既存 18＋
+>   B-1 5〕・harness 4・捏造防止 E2E 3）で実施（全 363 テスト。lint 0 警告 / typecheck / format:check / build グリーン。
+>   T12 の 334 から +29）。
+> - **残作業（実キー投入後）**: import:sakenowa/seed/embed で実データ投入 → `npm run rag:poc` で実埋め込みの
+>   recall@5/MRR/hit@5 実測 → retriever 重み確定 → 実 LLM でヒアリング→提案の往復試行 → 実 Postgres で B-1 の
+>   EXPLAIN 確認（`docs/RAG_POC.md §6`）。E2E は T16。
 
 ### T14: RAG チャットボット（UI＋API）
 

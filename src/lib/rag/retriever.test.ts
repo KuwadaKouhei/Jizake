@@ -392,3 +392,116 @@ describe("retrieveSakeCandidates（ハイブリッド検索）", () => {
     expect(receivedLength).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B-1: ANN 経路とタグ経路の分離（REVIEW T12 PERF B-1 の移管）
+//   分離しても機能は等価（同じ候補・同じ順位）であることを担保する。
+//   HNSW インデックス使用可否は実 Postgres の EXPLAIN が要り PGlite では確認不能なため、
+//   ここでは「ANN 経路が近傍を返す・タグ経路が埋め込み無し銘柄を拾う・両経路の和集合が
+//   分離前と同じ結果になる」機能的等価を検証する（EXPLAIN 手順は docs/RAG_POC.md に記録）。
+// ---------------------------------------------------------------------------
+describe("ANN 経路 × タグ経路の分離（B-1・機能等価）", () => {
+  it("ハード絞り込み無し＋freeText のみ（純粋な意味検索）はタグ経路を省き ANN 近傍のみ返す（PERF S-2）", async () => {
+    // フィルタが無く freeText だけのとき、タグ経路の人気順母集団は上位に寄与しないため
+    // 取得を省く（母集団半減）。この場合、埋め込み無し銘柄は候補に入らない。
+    const breweryId = await seedBrewery("旭酒造", "35");
+    const near = await seedSake(breweryId, "近い酒");
+    await seedEmbedding(near, oneHot(0)); // 距離 0（類似度 1）
+    const far = await seedSake(breweryId, "遠い酒");
+    await seedEmbedding(far, oneHot(1)); // 直交（類似度 0）
+    // 埋め込み無し銘柄は ANN 経路に出ず、タグ経路も省くため候補に入らない
+    await seedSake(breweryId, "埋め込み無し", { popularityRank: 1 });
+
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      freeText: "近い味",
+    });
+
+    const ids = result.map((r) => r.sake.id);
+    // 埋め込み有りの 2 銘柄のみ（埋め込み無しは意味検索では拾わない）
+    expect(new Set(ids)).toEqual(new Set([near, far]));
+    // 近傍（類似度 1）が最上位
+    expect(ids[0]).toBe(near);
+  });
+
+  it("ANN 経路は近い順（cosine 距離昇順）で近傍を優先する", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    // 距離が近い/中/遠い の 3 銘柄（タグ無し＝ベクタのみで順位が決まる）
+    const near = await seedSake(breweryId, "近い");
+    await seedEmbedding(near, oneHot(0)); // 距離 0
+    const mid = await seedSake(breweryId, "中間");
+    await seedEmbedding(mid, [0.7071, 0.7071, ...Array(1534).fill(0)]); // 約 45 度
+    const far = await seedSake(breweryId, "遠い");
+    await seedEmbedding(far, oneHot(1)); // 直交（距離 1）
+
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      freeText: "近い味",
+    });
+
+    // 距離昇順（near → mid → far）で並ぶ
+    expect(result.map((r) => r.sake.id)).toEqual([near, mid, far]);
+    expect(result[0].vectorSimilarity).toBeCloseTo(1);
+    expect(result[2].vectorSimilarity).toBeCloseTo(0);
+  });
+
+  it("タグ経路は埋め込み無し銘柄を母集団に残す（ANN 経路に出なくても拾う）", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    // ANN 経路（sake_embeddings 起点）には決して現れない埋め込み無し銘柄
+    const noEmbedding = await seedSake(breweryId, "埋め込み無し辛口");
+    await tagSake(noEmbedding, "辛口");
+    // クエリ方向の埋め込みを持つがタグは持たない別銘柄
+    const embedded = await seedSake(breweryId, "埋め込み有り");
+    await seedEmbedding(embedded, oneHot(0));
+
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      freeText: "辛口が飲みたい",
+      tagNames: ["辛口"],
+    });
+
+    const byId = new Map(result.map((r) => [r.sake.id, r]));
+    // 埋め込み無しでもタグ経路で候補に残り、vectorSimilarity は null
+    expect(byId.has(noEmbedding)).toBe(true);
+    expect(byId.get(noEmbedding)?.vectorSimilarity).toBeNull();
+    expect(byId.get(noEmbedding)?.matchedTagCount).toBe(1);
+  });
+
+  it("ANN 経路にもタグ経路のハード絞り込み（都道府県）が乗る", async () => {
+    const yamaguchi = await seedBrewery("旭酒造", "35");
+    const niigata = await seedBrewery("八海醸造", "15");
+    // 山口・新潟ともにクエリ方向の埋め込みを持つが、都道府県で山口だけに絞る
+    const inPref = await seedSake(yamaguchi, "山口の酒");
+    await seedEmbedding(inPref, oneHot(0));
+    const outPref = await seedSake(niigata, "新潟の酒");
+    await seedEmbedding(outPref, oneHot(0));
+
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      freeText: "美味しい酒",
+      prefectureCode: "35",
+    });
+
+    // 都道府県フィルタが ANN 経路にも効き、県外は候補に入らない
+    expect(result.map((r) => r.sake.id)).toEqual([inPref]);
+  });
+
+  it("重複（両経路に出る同一銘柄）は 1 件に畳まれる", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    // クエリ方向の埋め込みも要求タグも持つ＝ANN 経路とタグ経路の両方に出る
+    const both = await seedSake(breweryId, "近くて辛口");
+    await seedEmbedding(both, oneHot(0));
+    await tagSake(both, "辛口");
+
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      freeText: "辛口が好き",
+      tagNames: ["辛口"],
+    });
+
+    // 和集合の Set 化で 1 件だけになる
+    const occurrences = result.filter((r) => r.sake.id === both);
+    expect(occurrences).toHaveLength(1);
+    // ベクタ成分（距離0=1.0）＋タグ成分（1/1）の両方が乗る
+    expect(occurrences[0].vectorSimilarity).toBeCloseTo(1);
+    expect(occurrences[0].matchedTagCount).toBe(1);
+    expect(occurrences[0].score).toBeCloseTo(
+      VECTOR_WEIGHT * 1 + TAG_WEIGHT * 1,
+    );
+  });
+});

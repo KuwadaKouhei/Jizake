@@ -16,7 +16,8 @@
     "db:migrate": "drizzle-kit migrate",
     "import:sakenowa": "tsx scripts/import-sakenowa.ts",
     "seed": "tsx scripts/seed.ts",
-    "embed": "tsx scripts/embed.ts"
+    "embed": "tsx scripts/embed.ts",
+    "rag:poc": "tsx scripts/rag-poc.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

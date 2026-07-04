@@ -1,4 +1,12 @@
-import { and, asc, cosineDistance, eq, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  cosineDistance,
+  eq,
+  inArray,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import { embedText } from "@/lib/ai/embedding";
 import { getDb } from "@/lib/db/client";
@@ -49,13 +57,15 @@ export const TAG_WEIGHT = 0.3;
 export const DEFAULT_CANDIDATE_LIMIT = 8;
 
 /**
- * 候補母集団の上限。ベクタ ORDER BY で上位を取得する件数の上限で、
+ * 候補母集団の上限。各経路（ANN・タグ）で取得する件数の上限で、
  * タグ絞り込みが緩い（または無い）場合に全銘柄をメモリに載せないための保険
  * （汎用検索での自己 DoS 回避。REVIEW T10 PERF S-1 と同じ姿勢）。
  *
- * 現状は「ハード絞り込み後の母集団を距離順で pool 件切り出し→メモリでスコア再計算」で、
- * タグ絞り込みが効けば母集団が pool 内に収まる前提。厳密な「距離上位 N ∪ タグ一致」への
- * 変更（ANN 経路とタグ経路の分離）は実データ EXPLAIN が要るため T13 PoC で対応する（REVIEW T12 PERF B-1）。
+ * T13 で B-1（HNSW を活かすクエリ形状）を実装し、候補集合の作り方を
+ * 「ANN 経路（sake_embeddings 起点の素の `<=>` ORDER BY LIMIT）とタグ経路
+ * （タグ/都道府県/価格帯の SQL 絞り込み）の和集合」に変更した。ANN 経路は HNSW
+ * インデックスが効く形状で近傍上位を取り、タグ経路は埋め込みが無い銘柄も母集団に残す。
+ * どちらも本定数で件数を頭打ちにする（REVIEW T12 PERF B-1 の移管対応）。
  */
 const CANDIDATE_POOL_SIZE = 100;
 
@@ -172,18 +182,131 @@ function buildFilters(db: Db, query: RetrieveQuery): SQL | undefined {
 // ---------------------------------------------------------------------------
 
 /**
+ * ANN 経路: sake_embeddings を起点に、クエリベクトルへの cosine 距離（<=>）で
+ * 近い順に上位 CANDIDATE_POOL_SIZE 件の sakeId を取る（B-1: HNSW を活かす形状）。
+ *
+ * `sake_embeddings.embedding <=> $query` の素の ORDER BY LIMIT にすることで
+ * HNSW インデックス（`vector_cosine_ops`, DATABASE §3 index 10）を近傍探索に
+ * 使わせる（CASE 式・LEFT JOIN・複合 ORDER BY を挟むと index が効かない。REVIEW T12 B-1）。
+ *
+ * タグ/都道府県/価格帯のハード絞り込み（where）はここでも AND する。距離の
+ * ORDER BY を維持したまま同じフィルタで絞れば HNSW の候補走査に絞り込みが乗る
+ * （プランナが index 併用可）。ここで返らなかった銘柄（埋め込み無し等）はタグ経路が拾う。
+ *
+ * 返すのは距離つきの sakeId のみ（詳細・タグは呼び出し側で ID 集合に対しまとめて引く）。
+ */
+async function selectAnnCandidates(
+  db: Db,
+  queryVector: number[],
+  where: SQL | undefined,
+): Promise<{ id: string; distance: number }[]> {
+  // cosineDistance の戻り型は unknown 相当のため number として扱う（下で Number 化する）。
+  const distance = sql<number>`${cosineDistance(sakeEmbeddings.embedding, queryVector)}`;
+  return (
+    db
+      .select({ id: sakeEmbeddings.sakeId, distance })
+      .from(sakeEmbeddings)
+      .innerJoin(sakes, eq(sakes.id, sakeEmbeddings.sakeId))
+      .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+      .where(where)
+      // 素の距離 ORDER BY LIMIT（HNSW 近傍探索が効く形状）。
+      .orderBy(asc(distance))
+      .limit(CANDIDATE_POOL_SIZE)
+  );
+}
+
+/**
+ * タグ経路: タグ/都道府県/価格帯のハード絞り込みで母集団の sakeId を取る。
+ *
+ * 埋め込みの有無に依存しない（sake_embeddings を JOIN しない）ので、ベクタ検索に
+ * 出ない銘柄（埋め込み未登録）も母集団に残せる（DESIGN §2.6・タグで拾う担保）。
+ * 人気順→名前→id の安定順で上位 CANDIDATE_POOL_SIZE 件。
+ */
+async function selectTagCandidates(
+  db: Db,
+  where: SQL | undefined,
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: sakes.id })
+    .from(sakes)
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(where)
+    .orderBy(
+      sql`${sakes.popularityRank} ASC NULLS LAST`,
+      asc(sakes.name),
+      asc(sakes.id),
+    )
+    .limit(CANDIDATE_POOL_SIZE);
+  return rows.map((row) => row.id);
+}
+
+/**
+ * 候補 sakeId 集合に対して、カード表示に必要な銘柄要約（＋人気順の安定ソート用の
+ * popularityRank・name）を一括取得する。ID の集合検索なので N+1 にならない。
+ */
+async function loadCandidateSakes(
+  db: Db,
+  ids: readonly string[],
+): Promise<
+  Map<
+    string,
+    {
+      name: string;
+      breweryName: string;
+      prefectureCode: string;
+      popularityRank: number | null;
+    }
+  >
+> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+  const rows = await db
+    .select({
+      id: sakes.id,
+      name: sakes.name,
+      breweryName: breweries.name,
+      prefectureCode: breweries.prefectureCode,
+      popularityRank: sakes.popularityRank,
+    })
+    .from(sakes)
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(inArray(sakes.id, [...ids]));
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        name: row.name,
+        breweryName: row.breweryName,
+        prefectureCode: row.prefectureCode,
+        popularityRank: row.popularityRank,
+      },
+    ]),
+  );
+}
+
+/**
  * ハイブリッド検索の中核（db・埋め込み関数を明示的に受ける下位関数）。
  * テストでは PGlite とダミー埋め込みを差し込むためにこちらを直接呼ぶ。
  *
- * 手順:
- *   1. タグ・都道府県・価格帯で母集団を SQL 絞り込みする（EXISTS/JOIN）。
- *   2. freeText があればクエリを埋め込み、cosine 距離（<=> = cosineDistance）で
- *      近い順に上位 CANDIDATE_POOL_SIZE 件を取得する。埋め込みが無い銘柄も
- *      LEFT JOIN で母集団に残し（距離 null）、ベクタ検索に出ない銘柄をタグで拾う。
- *   3. freeText が無ければ人気順→名前順で母集団を取得する（ベクタ成分なし）。
- *   4. 各候補の統合スコア（combineScore）を計算し、降順（同点は人気→名前→id の
- *      安定順）で上位 limit 件を返す。タグは selectTagsBySakeIds で一括取得（N+1 回避）。
+ * 手順（B-1: ANN 経路とタグ経路の分離。REVIEW T12 PERF B-1 の移管対応）:
+ *   1. タグ・都道府県・価格帯のハード絞り込み条件（where）を組み立てる。
+ *   2. freeText があればクエリを埋め込み、**ANN 経路**（selectAnnCandidates）で
+ *      HNSW を活かす素の `<=>` ORDER BY LIMIT により近傍上位の sakeId＋距離を取る。
+ *   3. **タグ経路**（selectTagCandidates）で同じ where により sakeId を取る。埋め込みが
+ *      無い銘柄もここで母集団に残る（ベクタ検索に出ない銘柄をタグで拾う）。
+ *   4. 両経路の sakeId を和集合にし、その集合の銘柄要約・タグを一括取得（N+1 回避）。
+ *      ANN 経路の距離をベクタ類似度成分にし、統合スコア（combineScore）を計算する。
+ *   5. スコア降順（同点は距離→人気→名前→id の安定順）で上位 limit 件を返す。
  *
+ * ハード絞り込み条件（タグ・都道府県・価格帯）が無く freeText だけのとき（＝純粋な
+ * 意味検索）は、タグ経路が返す人気順の母集団は上位スコアに寄与しないため取得を省く
+ * （母集団を最大 pool×2 → pool に半減。REVIEW T13 PERF S-2）。この場合、埋め込みが無い
+ * 銘柄は候補に入らない（絞り込む理由が無い意味検索では埋め込み有り銘柄のみを返す）。
+ *
+ * 上位 limit 件は距離で決まり分離前と等価。候補が limit 件に満たない場合の下位の顔ぶれは、
+ * 母集団の取り方（和集合／ANN のみ）により分離前と変わり得る（RAG_POC.md §8.3）。
+ * 公開シグネチャ retrieve(query) と戻り値 SakeCandidate[] は不変（REVIEW T12 B-1 の制約）。
  * 返す候補は必ず実在の sakeId を含む（DESIGN §2.6 捏造防止の一段目）。
  */
 export async function retrieveSakeCandidates(
@@ -204,61 +327,46 @@ export async function retrieveSakeCandidates(
   const freeText = query.freeText?.trim().slice(0, MAX_FREE_TEXT_LENGTH);
   const hasFreeText = freeText !== undefined && freeText.length > 0;
 
-  // ベクタ距離の式。freeText があれば埋め込んで cosineDistance を計算する。
-  // 埋め込みが無い銘柄（LEFT JOIN で embedding が NULL）は距離 NULL になる。
-  let distanceExpr = sql<number | null>`NULL::double precision`;
+  // ANN 経路: freeText があるときだけクエリを埋め込み、近傍上位＋距離を取る。
+  // 距離は sakeId → distance のマップにして後段のスコア計算で引く。
+  const distanceById = new Map<string, number>();
   if (hasFreeText) {
     const queryVector = await embedQuery(freeText);
-    distanceExpr = sql<number | null>`
-      CASE WHEN ${sakeEmbeddings.embedding} IS NULL THEN NULL
-      ELSE ${cosineDistance(sakeEmbeddings.embedding, queryVector)} END
-    `;
+    const annRows = await selectAnnCandidates(db, queryVector, where);
+    for (const row of annRows) {
+      distanceById.set(row.id, Number(row.distance));
+    }
   }
 
-  // 母集団の取得順序:
-  // - freeText あり: 距離昇順（NULL は末尾）→ 人気順 → 名前 → id。近い銘柄を優先しつつ、
-  //   埋め込み無し・非マッチ銘柄も pool 末尾に残す（タグで拾えるように）。
-  // - freeText なし: 人気順（NULL 末尾）→ 名前 → id（純タグ絞り込みの安定順）。
-  const orderBy = hasFreeText
-    ? [
-        sql`${distanceExpr} ASC NULLS LAST`,
-        sql`${sakes.popularityRank} ASC NULLS LAST`,
-        asc(sakes.name),
-        asc(sakes.id),
-      ]
-    : [
-        sql`${sakes.popularityRank} ASC NULLS LAST`,
-        asc(sakes.name),
-        asc(sakes.id),
-      ];
+  // タグ経路: 埋め込みの有無に依存せず母集団を取る（埋め込み無し銘柄もここで残る）。
+  // ただしハード絞り込みが無く freeText のみ（純粋な意味検索）のときは、タグ経路の
+  // 人気順母集団が上位に寄与しないため取得を省く（母集団を半減。REVIEW T13 PERF S-2）。
+  const skipTagPath = where === undefined && hasFreeText;
+  const tagIds = skipTagPath ? [] : await selectTagCandidates(db, where);
 
-  const rows = await db
-    .select({
-      id: sakes.id,
-      name: sakes.name,
-      breweryName: breweries.name,
-      prefectureCode: breweries.prefectureCode,
-      distance: distanceExpr,
-    })
-    .from(sakes)
-    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
-    .leftJoin(sakeEmbeddings, eq(sakeEmbeddings.sakeId, sakes.id))
-    .where(where)
-    .orderBy(...orderBy)
-    .limit(CANDIDATE_POOL_SIZE);
-
-  if (rows.length === 0) {
+  // 両経路の和集合（順序は問わない。最終順位はスコアで決める）。
+  const idSet = new Set<string>([...distanceById.keys(), ...tagIds]);
+  if (idSet.size === 0) {
     return [];
   }
+  const ids = [...idSet];
 
-  const sakeIds = rows.map((row) => row.id);
-  const tagsBySakeId = await selectTagsBySakeIds(db, sakeIds);
+  const [sakeById, tagsBySakeId] = await Promise.all([
+    loadCandidateSakes(db, ids),
+    selectTagsBySakeIds(db, ids),
+  ]);
 
   const requestedTags = new Set(query.tagNames ?? []);
   const requestedTagCount = requestedTags.size;
 
-  const candidates: SakeCandidate[] = rows.map((row) => {
-    const tagSummaries = tagsBySakeId.get(row.id) ?? [];
+  const scored: ScoredCandidate[] = [];
+  for (const id of ids) {
+    const sake = sakeById.get(id);
+    // 和集合の ID は直前に取得したもので必ず存在するが、型の健全性のため防御的に飛ばす。
+    if (sake === undefined) {
+      continue;
+    }
+    const tagSummaries = tagsBySakeId.get(id) ?? [];
     const matchedTagCount = tagSummaries.filter((tag) =>
       requestedTags.has(tag.name),
     ).length;
@@ -266,31 +374,78 @@ export async function retrieveSakeCandidates(
     // cosine 距離（0..2）を類似度へ。1 - 距離は 1..-1 になり得るが、負（逆向き＝無関係）は
     // 0 にクランプする。クランプしないとタグ同一一致でも「埋め込み有り（逆向き）」が
     // 「埋め込み無し（null=0 扱い）」より下に沈み順位が逆転する（REVIEW T12 CODE S-1）。
+    const distance = distanceById.get(id);
     const vectorSimilarity =
-      row.distance === null ? null : Math.max(0, 1 - Number(row.distance));
+      distance === undefined ? null : Math.max(0, 1 - distance);
 
-    return {
-      sake: {
-        id: row.id,
-        name: row.name,
-        breweryName: row.breweryName,
-        prefectureCode: row.prefectureCode,
-        tags: tagSummaries,
-      },
-      score: combineScore({
+    scored.push({
+      candidate: {
+        sake: {
+          id,
+          name: sake.name,
+          breweryName: sake.breweryName,
+          prefectureCode: sake.prefectureCode,
+          tags: tagSummaries,
+        },
+        score: combineScore({
+          vectorSimilarity,
+          matchedTagCount,
+          requestedTagCount,
+        }),
         vectorSimilarity,
         matchedTagCount,
-        requestedTagCount,
-      }),
-      vectorSimilarity,
-      matchedTagCount,
-    };
-  });
+      },
+      // 安定ソート用の従属キー（公開型 SakeCandidate には含めない）。
+      distance: distance ?? Number.POSITIVE_INFINITY,
+      popularityRank: sake.popularityRank,
+      name: sake.name,
+      id,
+    });
+  }
 
-  // 統合スコア降順。同点は SQL 側の母集団順（距離→人気→名前→id）を保つため
-  // 安定ソートに委ねる（Array.prototype.sort は V8 で安定）。
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates.slice(0, limit);
+  // 統合スコア降順。同点は分離前と同じ順（距離昇順→人気昇順→名前→id）で決める
+  // （母集団を SQL の 1 本の ORDER BY で並べていた挙動を、和集合化に伴い明示比較に移す）。
+  scored.sort(compareScored);
+  return scored.slice(0, limit).map((s) => s.candidate);
+}
+
+// ---------------------------------------------------------------------------
+// 最終順位付け（和集合化に伴い、分離前の複合 ORDER BY 相当をメモリ比較で再現）
+// ---------------------------------------------------------------------------
+
+/** スコア済み候補＋安定ソート用の従属キー（返り値の型には含めない内部表現）。 */
+type ScoredCandidate = {
+  candidate: SakeCandidate;
+  /** ANN 経路の距離（無ければ +Infinity＝末尾）。 */
+  distance: number;
+  popularityRank: number | null;
+  name: string;
+  id: string;
+};
+
+/**
+ * 候補の最終順位比較。スコア降順を主キーに、同点は距離昇順→人気昇順〔NULL 末尾〕→
+ * 名前→id で決める。ANN 経路に無い銘柄の距離は +Infinity（末尾）、人気 NULL も末尾。
+ * 最終的に id（UUID）で必ず決着するため決定的。名前比較は表示上の安定性のための補助で、
+ * JS の localeCompare("ja") は Postgres の列照合順と厳密には一致しない（REVIEW T13 CODE S-1）。
+ */
+function compareScored(a: ScoredCandidate, b: ScoredCandidate): number {
+  if (b.candidate.score !== a.candidate.score) {
+    return b.candidate.score - a.candidate.score;
+  }
+  if (a.distance !== b.distance) {
+    return a.distance - b.distance;
+  }
+  const ra = a.popularityRank ?? Number.POSITIVE_INFINITY;
+  const rb = b.popularityRank ?? Number.POSITIVE_INFINITY;
+  if (ra !== rb) {
+    return ra - rb;
+  }
+  const byName = a.name.localeCompare(b.name, "ja");
+  if (byName !== 0) {
+    return byName;
+  }
+  return a.id.localeCompare(b.id);
 }
 
 /**
