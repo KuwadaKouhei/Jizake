@@ -6,8 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthUser } from "@/lib/auth/server";
 import * as schema from "@/lib/db/schema";
-
-import type { SearchCriteria } from "../_lib/build-search-query";
+import type { SearchCriteria } from "@/lib/search-query";
 
 /**
  * 検索履歴記録 Server Action（recordSearch）のテスト。

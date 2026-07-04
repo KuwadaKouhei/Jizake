@@ -3,12 +3,11 @@
 import { getCurrentUser } from "@/lib/auth/server";
 import { getDb } from "@/lib/db/client";
 import { searchHistories } from "@/lib/db/schema";
-
 import {
-  type SearchCriteria,
   isEmptyCriteria,
   sanitizeCriteria,
-} from "../_lib/build-search-query";
+  type SearchCriteria,
+} from "@/lib/search-query";
 
 /**
  * 検索履歴の記録（Server Action）— FR-05 前半 / DESIGN §2.4。

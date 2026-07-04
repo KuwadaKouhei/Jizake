@@ -7,13 +7,13 @@ import { PREFECTURES } from "@/lib/constants/prefectures";
 import { getSearchSakes } from "@/lib/db/queries/sakes";
 import { getTasteTagOptions } from "@/lib/db/queries/tags";
 import { totalPageCount } from "@/lib/pagination/pagination";
-
-import { RecordSearchTrigger } from "./_components/record-search-trigger";
 import {
   buildSearchCriteria,
-  toSearchQueryString,
   type RawSearchParams,
-} from "./_lib/build-search-query";
+  toSearchQueryString,
+} from "@/lib/search-query";
+
+import { RecordSearchTrigger } from "./_components/record-search-trigger";
 
 /**
  * 検索ページ（/search）— 名前・都道府県・味タグの複合検索（FR-06 / FR-02）。

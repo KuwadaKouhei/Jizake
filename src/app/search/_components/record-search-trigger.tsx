@@ -2,8 +2,9 @@
 
 import { useEffect, useRef } from "react";
 
+import type { SearchCriteria } from "@/lib/search-query";
+
 import { recordSearch } from "../_actions/record-search";
-import type { SearchCriteria } from "../_lib/build-search-query";
 
 /**
  * 検索履歴の記録トリガ（Client Component）— DESIGN §2.4 / 決定 D3。
