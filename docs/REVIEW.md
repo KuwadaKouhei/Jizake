@@ -1,59 +1,54 @@
 # レビュー・監査結果（REVIEW）
 
-> 対象: `main...feature/T09-history`（T09 履歴記録と履歴画面）
+> 対象: `main...feature/T10-recommend`（T10 履歴ベース推薦エンジン＋ホーム表示）
 > 実施日: 2026-07-04
 > レビュアー: code-reviewer / security-auditor / web-performance-auditor / philosophy-compliance-reviewer（4ペルソナ並行）
-> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T08: PR #8）
+> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T09: PR #9）
 
 ## 判定: ✅ マージ可
 
-Blocker 1 件（セキュリティ）・Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T09 レビュー指摘対応`）。修正後、全検証グリーン（254 テスト・lint・typecheck・format・build）。
+Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `8fcf732`, `709bd35`）。修正後、全検証グリーン（290 テスト・lint・typecheck・format・build）。
 
 ## 検証結果
 
-- test 35 ファイル / 254 件全パス（T09 で +36）
+- test 37 ファイル / 290 件全パス（T10 で +36）
 - lint / typecheck / format:check / build すべてグリーン
-- IDOR/ユーザーデータ分離は「堅牢」（セキュリティ監査）、fire-and-forget・N+1 回避・RSC 純度も良好（性能）
+- 思想準拠は「差し替え可能な知能は文句なく合格」、性能は「全 RSC・N+1 回避・インデックス活用が良好」、セキュリティは「ユーザーデータ分離は堅牢」と評価
 
 ## 指摘と対応
 
-### Blocker（対応済み）
+### Blocker
 
-| # | 出所 | 指摘 | 対応 |
-|---|---|---|---|
-| B-1 | セキュリティ | `recordSearch` がクライアント由来の `criteria` をサーバ側で再検証せず jsonb に INSERT（自分の履歴への注入・肥大化。`recordView` の `isValidSakeId` と非対称） | `sanitizeCriteria`（検索 Zod スキーマを単一情報源に再利用）で q 長さ・タグ数/長さ・都道府県書式をサーバ側再検証してから INSERT。回帰テスト追加 |
+なし。
 
 ### Should（すべて対応済み）
 
 | # | 出所 | 指摘 | 対応 |
 |---|---|---|---|
-| S-1 | コード/性能 | `getCurrentUser` が 1 リクエストで最大 3 回 `getUser()`（トークン検証の往復）を反復 | `React.cache` でラップ（全ページのヘッダー・ページ本体で 1 回に集約する横断改善） |
-| S-2 | セキュリティ | fire-and-forget の失敗ログに `error` 全体（SQL パラメータ・query・filters）が載り得る | `error.message` のみに絞り、ユーザー入力をログに残さない |
-| S-3 | セキュリティ | 味タグ 1 要素の長さが無制限 | `MAX_TAG_LENGTH=32` で各要素を切り詰め（B-1 の再検証と併せて jsonb 肥大化を防止） |
-| S-4 | コード | 検索履歴ラベルのリスト key が配列インデックス | 位置＋値 `${i}-${label}` で一意化 |
+| S-1 | 性能/セキュリティ | 候補クエリに上限がなく、汎用タグを持つヘビーユーザーで母集団が数百〜千件に膨らむ（自己 DoS・レイテンシ逆進性） | `candidatePoolSize=200` で人気順（`popularity_rank NULLS LAST`→id）に切ってスコアリング。`truncateProfileTags` で IN 句に渡すタグを重み上位 `maxProfileTags=30` に絞る |
+| S-2 | コード | 閲覧済み除外が直近 100 件の履歴に限定され、ヘビーユーザーで既視銘柄が推薦に混入 | 除外用に全期間の `selectViewedSakeIds`（distinct・`excludeIdCap=5000`）を分離。集計用の直近履歴と役割分担 |
+| S-3 | コード | `limit > popularPoolSize` で件数不足になる不変条件が未保証 | 母集団取得を `limit(max(poolSize, limit))` に。ホームを常に埋める |
+| S-4 | 思想 | DESIGN §2.5/§4.2 の「単一の集計 SQL」記述と実装（複数クエリ）の乖離が未記録 | DESIGN を「複数クエリ＋スコア計算の純関数」に更新、TASKS 実施メモに分割理由を追記 |
+| S-5 | 思想 | ホーム見出しが「ログイン有無」で、履歴しきい値未満でも「あなたへのおすすめ」と出る | 「履歴ベースの推薦が 1 件でもあるか」で判定し、全 popular なら「人気の日本酒」に倒す（透明性） |
 
-### Consider（引き継ぎ・記録 → TASKS の非機能フォローに追記）
+### Consider（対応済み・任意分も反映）
 
-- **履歴書き込みのレート制限／重複抑制（SEC S-2 / PERF S-1）**: `view_histories` は追記専用（同一銘柄の複数閲覧を別行）で設計どおりだが、ヘビーユーザーで行数が膨らむと `count()`/`OFFSET` が劣化。DESIGN §6.2 の「乱用が観測されてから追加」方針に沿い、実データ稼働後に「直近 N 分の同一 sakeId は 1 行」等を検討。TASKS の非機能フォローに記録
-- **履歴一覧のページャ UI（PERF C-1）**: クエリは `total`/`page`/`pageSize` を返すがページ側は 1 ページ固定。当面は直近 24 件表示で受け入れ条件（FR-05 前半）を満たす。keyset ページネーション化と併せて将来対応。page.tsx にコメントで明記
-- **`filters` の型**: 公開境界で `unknown` ＋ `readFilters` の実行時ガード（DB を信頼しない姿勢として妥当）。将来 Zod スキーマ化の余地
-- **RLS 二段目**: Drizzle のサーバ接続は RLS 素通しのため、実効防御は一段目（`getCurrentUser` からの user_id 強制）。DESIGN §6.2 で想定・文書化済み
+- SEC C-1: `recommend()` の `limit` を `min(max(0,limit),50)` にクランプ（将来の呼び出しミス耐性）— 対応済み
+- CODE C-1: コールドスタート（履歴しきい値未満のログインユーザー）にも閲覧済み ID を渡し既視除外 — 対応済み
+- 記録のみ: `filters` jsonb の防御的読み取りは書き込み側 Zod 制限（MAX_TAGS/MAX_TAG_LENGTH）と二重
 
 ## 受け入れ条件の充足
 
-- FR-05 前半（詳細ページ閲覧と検索実行が履歴として記録される）: fire-and-forget Server Action で view/search を記録（未ログイン no-op・空条件スキップ）✅
-- FR-04（未ログインで履歴にアクセスすると誘導）: T08 の `/history` 保護＋本タスクで実画面を表示 ✅
-- 非機能「履歴は本人のみ参照可能」: user_id 強制フィルタ（主防御）＋ RLS（二段目）。他人の履歴が漏れないことを PGlite テストで検証 ✅
-- 制約: 実データ記録疎通・RLS 実効遮断は Supabase 稼働後の残作業。ロジックは PGlite＋モックで検証済み
+- FR-05 後半（ホームに履歴に基づくおすすめ、履歴が無い場合は人気等のフォールバック）: `recommend({userId, limit})` の固定 IF＋ルールベース実装＋コールドスタート（人気ランキング）をテストで担保 ✅
+- 制約: 実データでの推薦品質は Supabase 稼働＋履歴蓄積後。ロジックは PGlite で検証済み
 
-## セキュリティ総評（ユーザーデータ分離）
+## 設計思想の達成（差し替え可能な知能）
 
-- 公開関数（`getViewHistoryPage`/`getSearchHistoryPage`/`recordView`/`recordSearch`）は user_id を引数で受けず `getCurrentUser` から強制取得＝クライアントから他人の user_id を渡す経路が型レベルで存在しない
-- 記録は未ログイン no-op、`getUser()` のサーバ検証、Server Action の CSRF 耐性
-- 退会時は `auth.users`→`profiles`→履歴の CASCADE で全削除、履歴に不要な個人情報を保存しない
+- 公開 IF（`recommend`）を `src/lib/recommend/types.ts` で固定、実装選択は `index.ts` の 1 箇所の委譲のみ、呼び出し側（`page.tsx`）は `recommend` と型のみに依存
+- スコアリング（純関数 `scoring.ts`）と DB アクセス（`rule-based.ts`）を分離し、重み・減衰・しきい値・上限をすべて定数化
+- 将来 協調フィルタリング等へ差し替えても `index.ts` の委譲先変更のみでホーム画面は無変更（DIRECTORY_STRUCTURE 例2 が物理的に成立）
 
-## 思想準拠の特記
+## 性能・セキュリティの特記
 
-- 記録 Server Action を各セグメントの `_actions/` に、履歴クエリを `/history/_lib` にコロケーション
-- 履歴 `_lib` → 検索 `_lib` の一方向参照（循環なし）を DIR-11・§5.2 例外として記録（「逸脱ルールが期待どおり機能した好例」と評価）
-- fire-and-forget・追記専用イベントログ・user_id 二段防御は DESIGN §2.4/§6.2・決定 D3 どおり
+- ホームは全 RSC・`force-dynamic`、クライアント JS 増分ゼロ。履歴・候補・人気クエリは N+1 回避（`selectTagsBySakeIds` 一括）でインデックス活用
+- `userId` は `getCurrentUser()` 由来のみ（クライアント指定不可）、SQL は全経路パラメータ化、推薦理由は本人の嗜好カテゴリのみで他人・内部情報を出さない

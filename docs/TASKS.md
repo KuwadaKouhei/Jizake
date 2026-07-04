@@ -248,7 +248,7 @@
 | 受け入れ条件 | FR-05（閲覧・検索が履歴として記録される）、FR-04（未ログインで履歴アクセス時に誘導） |
 | 依存タスク | T05, T07, T08 |
 | ブランチ | `feature/T09-history` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。設計判断と実装内容:
 > - **fire-and-forget の記録**（DESIGN §2.4 / 決定 D3）: 詳細ページ・検索結果ページに小さな Client
@@ -294,8 +294,71 @@
 | 主な作業内容 | ① `src/lib/recommend/types.ts`（`recommend(input)` の固定 IF・`RecommendedSake`/`RecommendReason`）② `src/lib/recommend/rule-based.ts`（直近履歴のタグ＋都道府県〔擬似タグ〕頻度を時間減衰つきで集計する単一 SQL → 未閲覧銘柄をタグ一致度でスコアリング）③ `src/lib/recommend/scoring.ts`（スコア計算の純関数、重み定数を注入可能に）＋ `scoring.test.ts` ④ コールドスタート: 履歴 3 件未満・未ログインは `popularity_rank` 上位＋ランダム性のフォールバック（reason: "人気の銘柄"）⑤ `src/lib/recommend/index.ts`（実装の選択）⑥ `src/app/page.tsx`・`_components/` で推薦カード列＋ reason 表示。未ログイン時はログイン誘導を併記 |
 | 受け入れ条件 | FR-05（ホームに履歴ベースのおすすめ表示＋フォールバック） |
 | 依存タスク | T09（履歴データ）、T05（sake-card） |
-| ブランチ | `feature/T10-recommend-home` |
-| 状態 | 未着手 |
+| ブランチ | `feature/T10-recommend`（指示に従い当初案 `feature/T10-recommend-home` から変更） |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑥完了。設計判断と実装内容:
+> - **固定インターフェース（差し替え可能な知能。PLAN_PHILOSOPHY 原則3 / DESIGN §2.5）**:
+>   `src/lib/recommend/types.ts` に `recommend({ userId, limit }): Promise<RecommendedSake[]>` の契約
+>   （`RecommendedSake = { sake: SakeSummary; reason: RecommendReason }`）を定義。実装の選択は
+>   `index.ts` の 1 箇所だけが行い、現在は `rule-based.ts`（タグ頻度＋時間減衰）へ委譲する。将来
+>   協調フィルタリング等へ差し替える際は同ディレクトリに別ファイルを足し index.ts の委譲先を変える
+>   だけで、呼び出し側（`src/app/page.tsx`）は無変更（DIRECTORY_STRUCTURE 例2 が実際に成立）。
+> - **スコアリングの純関数分離（TEST_PHILOSOPHY）**: `scoring.ts` に (a) 履歴イベント→嗜好プロファイル
+>   （時間減衰つき頻度集計 `buildPreferenceProfile`）(b) プロファイル＋候補→スコア（`scoreCandidates`）を
+>   DB 非依存の純関数として切り出し、`rule-based.ts`（DB アクセス）と分離。重み・減衰は `ScoringWeights`
+>   定数（`DEFAULT_WEIGHTS`）に集約し関数引数で注入可能（マジックナンバー禁止。CODING_PHILOSOPHY）。
+> - **時間減衰は指数（半減期方式）**: `timeDecay = 0.5^(ageDays/halfLifeDays)`（既定 halfLifeDays=14）。
+>   線形（打ち切り式）は打ち切り日以前が一律 0 になり嗜好が階段状に飛ぶため、直近を強く反映しつつ古い
+>   履歴も緩やかに残す指数を採用。閲覧 1.0 / 検索 0.7（検索は AND 複数タグで過大評価しやすいためやや軽く）、
+>   都道府県は擬似タグ倍率 0.6（産地だけで埋まらないよう味タグより弱める。DESIGN §3・D2 の擬似タグ扱いを
+>   ロジック側に閉じる）。初期値は DESIGN §9 の「実装時に定数化し調整」に沿う暫定値。
+> - **閲覧済み銘柄は「除外」（減点でなく）**: ホームは新規発見の面であり既視銘柄の再提示は価値が薄い。
+>   閲覧履歴自体は /history で参照できる。`scoreCandidates` が viewedSakeIds を除外し、候補取得 SQL でも
+>   `not in` で先に外す（メモリに載せる候補集合を小さく保つ）。スコア 0（一致なし）も落とす。
+> - **コールドスタート条件＝「未ログイン or 履歴イベント総数 < しきい値(3)」**: 未ログイン（userId=null）と
+>   履歴 3 件未満を同じフォールバック（`popularity_rank` 上位を Fisher-Yates でシャッフルし limit 件）に
+>   落とす（reason: popular=「人気の銘柄」。DESIGN §2.5・§4.2）。popularity_rank が NULL の銘柄は母集団に
+>   入れない（index 3 の部分インデックス対象）。履歴ベースでスコア上位が limit に満たない場合も人気銘柄で
+>   補完し、ホームを常に埋める。
+> - **嗜好プロファイルの表現**: `{ tags: Map<name, weight>; prefectures: Map<code, weight> }`。都道府県は
+>   正規化を保ったまま（テーブル化しない D2）ロジック側で擬似タグとしてタグ空間に混ぜる。検索履歴の
+>   filters(jsonb) は DB を信頼せず `readFilterSignals` で防御的に読む（unknown ガード。REVIEW T09 の姿勢を踏襲）。
+> - **横断配置（DIRECTORY_STRUCTURE DIR-6・§5.1）**: 推薦は複数画面・将来のチャット（T14）からも使う横断
+>   ロジックのため `src/lib/recommend/` に置く。既存資産を再利用（重複実装なし）: `SakeSummary`・
+>   `selectTagsBySakeIds`（タグ N+1 回避の一括取得）・`CatalogDb`（PGlite 差し込み型）・`SakeCard`・
+>   `getCurrentUser`（React.cache 済み）・`findPrefectureByCode`。推薦理由の文言化は `app/_lib/
+>   recommend-reason-label.ts`（ホーム専用の純関数）に分離し、RecommendReason の構造だけを UI が知る。
+> - **ホーム画面（`src/app/page.tsx` のプレースホルダを置換）**: `getCurrentUser` の有無で `recommend` に
+>   userId を渡し分け、見出しを「あなたへのおすすめ」/「人気の日本酒」で出し分け。未ログインには
+>   ログイン/新規登録の誘導を併記（思想: 認証を機能のゲートにしない。DESIGN §2.3・PLAN_PHILOSOPHY 原則5）。
+>   各カードに reason を軽く添える（推薦の透明性。DESIGN §4.2）。ユーザー依存のため `dynamic=force-dynamic`。
+> - テストは純関数（scoring: 時間減衰・嗜好集計・スコアリング・閲覧済み除外・重み注入／reason-label 文言）＋
+>   統合（PGlite: 履歴ありユーザーは嗜好一致銘柄が上位・閲覧済み除外・人気補完・limit 遵守／コールドスタートは
+>   人気順・未ログイン・履歴しきい値未満・limit 0）＋ SSR 出力（ログイン/未ログインで見出し・内容・ログイン誘導が
+>   変わる。getCurrentUser・recommend をモック）で実施（全 282 テスト。lint / typecheck / format:check / build
+>   グリーン。T09 の 254 から +28）。
+> - **残作業**: 実際の認証済みユーザーでの推薦（実履歴データ）は Supabase 実プロジェクトが要る（T02 残作業）。
+>   ロジックは PGlite＋モックで検証済み。E2E は T16。重み・減衰の実データでのチューニングは稼働後（DESIGN §9）。
+>
+> レビュー対応（2026-07-04・4 ペルソナ Should/Consider 反映）:
+> - **候補母集団の上限（PERF/SEC S-1）**: `RuleBasedConfig` に `candidatePoolSize`(200)・`maxProfileTags`(30) を
+>   追加。候補取得 SQL を人気順（`popularity_rank asc nulls last` → id）で上位 candidatePoolSize 件に切ってから
+>   メモリでスコアリングし、汎用タグ持ちヘビーユーザーでの自己 DoS を防ぐ。プロファイルは
+>   `truncateProfileTags`（scoring.ts の純関数）で重み上位 K 件に絞ってから IN に渡す。
+> - **全期間の既視除外（CODE S-1）**: 嗜好集計用の履歴取得（`collectHistory`・直近 recentHistoryLimit 件）と、
+>   除外用の閲覧済み ID 集合（`selectViewedSakeIds`・全期間 distinct・`excludeIdCap`(5000) 上限）を分離。100 件超の
+>   ユーザーでも既視銘柄が推薦に混入しない（「ホームは新規発見」の不変条件を全期間で担保）。
+> - **フォールバックの件数充足（CODE S-2）**: `selectPopular` の母集団取得を `limit(max(poolSize, limit))` にし、
+>   limit > poolSize でも件数不足にならない不変条件を保証。
+> - **単一 SQL 記述の乖離解消（PHIL S-1）**: DESIGN §2.5/§4.2 を「複数クエリ（履歴集計・候補絞り込み・タグ一括・
+>   人気補完）＋スコア計算の純関数」に更新（selectTagsBySakeIds 再利用・候補 SQL 事前絞りのため分割）。
+> - **ホーム見出しの実態整合（PHIL S-2）**: ログイン済みでも中身が全て popular（履歴しきい値未満）なら見出しを
+>   「人気の日本酒」に倒す（`recommendations.some(reason.kind==="history")` で判定）。
+> - **Consider**: 公開 IF `recommend()` で limit を `min(max(0,limit), 50)` にクランプ（SEC C-1）。コールドスタート
+>   （`fallbackOnly`）にも閲覧済み ID を渡して既視除外（CODE C-1）。
+> - 追加テスト: `truncateProfileTags` 純関数、候補上限で母集団が切られる・全期間の既視除外（直近取得上限超）・
+>   limit>poolSize の件数充足の PGlite 回帰（全 290 テスト。lint / typecheck / format:check / build グリーン）。
 
 ### T11: 埋め込みパイプライン
 
