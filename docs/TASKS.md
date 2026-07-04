@@ -586,6 +586,40 @@
 >   ヒアリング→searchSake→proposeSake→検証済みカード表示の往復を疎通確認 → モデル ID の正確性確定。
 >   ストリーミング/ツール往復のロジックは AI SDK v6 の実装で書いたが、実 API は叩いていない
 >   （ユニットは固定応答モック。TEST_PHILOSOPHY）。E2E（LLM モックエンドポイント）は T16。
+>
+> レビュー対応（2026-07-04・4 ペルソナ Should/Consider 反映。Blocker なし。捏造防止・XSS は「構造的に堅牢」と高評価）:
+> - **S-1（role 制限・SEC）**: chatRequestSchema の role を `z.enum(["user","assistant"])` に絞り、
+>   クライアントからの `system` ロール注入を禁止（system は常にサーバが CHAT_SYSTEM_PROMPT で組む）。
+> - **S-2（maxOutputTokens・SEC）**: streamText に `maxOutputTokens: MAX_OUTPUT_TOKENS(1024)` を追加し
+>   出力側コスト DoS を有界化（DESIGN §6.3 の最低限ガード前倒し）。
+> - **S-3（parts 配列長・SEC）**: 各メッセージの `parts` に `.max(MAX_PARTS_PER_MESSAGE(50))` を追加
+>   （1 メッセージへ大量 part を詰める増幅 DoS の最低限ガード）。
+> - **S-4（過去 data part を信頼境界外に・CODE）**: ステートレスで毎回全履歴が送られるため、過去
+>   assistant の `data-*` パートは「信頼できない echo」。`stripAssistantDataParts`（純関数・
+>   `_lib/strip-data-parts.ts`）で convertToModelMessages に渡す前に明示除去し、細工 data part が
+>   LLM コンテキストに入らないことをユニットテスト（除去・convertToModelMessages 後に data 内容が
+>   混ざらない）で固定。Zod の未知キー strip の暗黙挙動に依存せず明示的に落とす（併せてコメントに
+>   「偽装 data-* は Zod strip＋この除去で LLM/描画に到達しない」を明記。Consider SEC/CODE）。
+>   ※ `route.ts` から純関数を export すると Next.js が不正なルートエントリと解釈し webpack ビルドで
+>   型エラーになるため（Turbopack build では見逃す）、`_lib/strip-data-parts.ts` に切り出した。
+> - **S-5（エラー文言一本化・CODE）**: ユーザー向けエラー文言の単一情報源を UI（chat-container の固定文言）
+>   に一本化。サーバ onError は message のみログ＋エラーパートに徹し（画面には出さない旨をコメント明示）、
+>   二重管理の dead code を解消。実 API 疎通時のエラー表示確認は残作業（実キー投入後）。
+> - **S-6（/chat の First Load JS 遅延化・PERF）**: `_components/chat-boundary.tsx`（"use client"＋
+>   `next/dynamic` の `ssr:false`＋軽量スケルトン loading）を新設し、重い ChatContainer
+>   （ai + @ai-sdk/react + zod）を初期バンドルから分離。page.tsx（RSC）は LCP 要素（h1・説明文）を
+>   静的に残し `<ChatBoundary/>` を描画。**/chat の page エントリチャンクは webpack 実測で 9.4kB→3.6kB**
+>   に減り、ChatContainer 本体（レビュー計測の +498kB/gzip 118kB）は初期 First Load から外れ表示後に
+>   非同期取得される（見出しは即時表示）。
+> - **Consider C-2（CODE/PERF）**: chat-messages の提案カード key を `index` から先頭 sake.id（空提案のみ
+>   index フォールバック）へ安定化。**PHIL S-1**: fabrication-guard.test.ts（PoC 雛形）・tools.ts の本番
+>   proposeSakeInputSchema・tools.test.ts に相互参照コメントを付けドリフト検知可能にし、RAG_POC.md §6 の
+>   「本番スキーマに差し替える」TODO を「T14 で tools.test.ts に移設・雛形据え置きで決着」に更新（消し込み）。
+> - **見送り（T15 スコープ・記録のみ）**: 匿名レート制限・多数リクエスト連打対策・`chat_sessions` 保存・
+>   `maxDuration`・タイムアウト/フォールバック（検索誘導）・詳細な往復数上限は T15。ChatMessageItem の
+>   React.memo 化は往復が増える T15 以降に計測ベースで（早すぎる最適化回避）。
+> - レビュー対応後: 全 384 テスト（+3）・lint 0 警告・typecheck・format:check・build（Turbopack）グリーン。
+>   webpack ビルドでも型チェック通過を確認（Route Handler の export 規約違反を修正済み）。
 
 ### T15: チャット運用ガード（コスト上限・フォールバック・セッション保存）
 
