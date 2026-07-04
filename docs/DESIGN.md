@@ -408,8 +408,10 @@ retrieveSakeCandidates(query: {
 validateProposedSakeIds(ids: string[]): Promise<SakeSummary[]> // 実在するもののみ返す
 
 // 履歴（Server Actions）
-recordView(sakeId: string): Promise<void>     // 未ログインは no-op
-recordSearch(params: SearchParams): Promise<void>
+recordView(sakeId: string): Promise<void>     // 未ログインは no-op（T09）
+recordSearch(criteria: SearchCriteria): Promise<void>
+// T09 実装: params 型は検索の SearchCriteria（= SearchParams。T07 で確定した名前）をそのまま受ける。
+// 空条件（isEmptyCriteria）は記録せず、q は query カラム・都道府県/タグは filters(jsonb) に分けて保存。
 
 // AI アダプタ（src/lib/ai）— AI SDK 呼び出しをここに集約
 embedText(text: string): Promise<number[]>
