@@ -416,7 +416,7 @@
 | 受け入れ条件 | FR-08（提案は DB 実在の銘柄のみ＝捏造防止の一段目・二段目の部品） |
 | 依存タスク | T11 |
 | ブランチ | `feature/T12-rag-retriever` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: 作成 `src/lib/rag/retriever.ts`・`validate-proposed.ts` ＋各テスト。
 > ③味タグ・都道府県の抽出は retriever が「渡された条件＋freeText」で動くため専用ファイルを持たない
