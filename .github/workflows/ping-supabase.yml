@@ -1,0 +1,26 @@
+# Supabase 無料枠の「7 日間無操作で一時停止」対策の定期 ping（TECH_STACK §8、TASKS T02 ⑦）。
+# Actions secret DATABASE_URL が未登録の間（実プロジェクト作成前）は安全にスキップする。
+name: Ping Supabase
+
+on:
+  schedule:
+    # 月・木 06:00 JST（週 2 回で 7 日間隔を確実に下回る）
+    - cron: "0 21 * * 0,3"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret が未登録のためスキップします（Supabase プロジェクト作成後に登録する。.env.example 参照）"
+            exit 0
+          fi
+          # ubuntu-latest ランナーに同梱の psql で軽量クエリを 1 回実行する
+          psql "$DATABASE_URL" --no-psqlrc --command "select 1;"
