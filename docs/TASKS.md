@@ -106,7 +106,7 @@
 | 受け入れ条件 | FR-01（詳細が取得・表示できる）、FR-02（詳細でタグ一覧表示）、FR-03（全条件） |
 | 依存タスク | T03, T04（表示する実データ） |
 | ブランチ | `feature/T05-sake-detail` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。① `src/lib/db/queries/sakes.ts` に
 > `getSakeDetail`（公開）/`selectSakeDetail`（db 注入・テスト用）を追加し、
