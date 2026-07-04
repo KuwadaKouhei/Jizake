@@ -1,5 +1,6 @@
 # CI: PR 毎に lint + typecheck + Vitest + build を実行する（TASKS T01 ④、TEST_PHILOSOPHY CI ゲート）。
-# Playwright E2E ジョブは T16 で追加する。
+# E2E（Playwright・主要 3 導線）は checks から分離した e2e ジョブで実行する（T16）。
+# unit ジョブを重くしないためジョブを分け、e2e だけが Playwright ブラウザ導入と build&start を負う。
 name: CI
 
 on:
@@ -45,3 +46,47 @@ jobs:
       # main は常に起動可能を保つ（GIT_CONVENTIONS）。ビルド不能なコードのマージを防ぐ
       - name: Build
         run: npm run build
+
+  # E2E（Playwright）主要 3 導線。checks とは独立に並列で走る（unit の速度を保つ）。
+  # 実データ/実キーが無い CI では安定動線（DB/キー無しでも到達できる画面）だけが通り、
+  # フルフロー（検索→一覧→詳細・ログイン往復・実 LLM チャット）は各 spec の
+  # test.skip(!env) で自動スキップされる（e2e/README.md 参照）。実データ/実キーを走らせたい
+  # 場合はリポジトリ Secrets に DATABASE_URL 等を登録すると、下の env 経由でフルフローも実行される
+  # （未登録なら空文字 → skip なので、Secrets 無しでも安全にグリーンになる）。
+  e2e:
+    runs-on: ubuntu-latest
+    # webServer が npm run build && start を実行するため（Playwright config）、単体のタイムアウトを設ける。
+    timeout-minutes: 15
+    env:
+      # Secrets 未登録なら空文字になり、各 spec のフルフローは test.skip される（安定動線のみ実行）。
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # E2E で使う Chromium と OS 依存ライブラリを導入する（1 ブラウザのみ＝所要時間を抑える）。
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts の webServer が build && start を起動して E2E を回す。
+      - name: E2E (Playwright)
+        run: npm run test:e2e
+
+      # 失敗時に HTML レポートを成果物として残す（原因調査用）。
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
