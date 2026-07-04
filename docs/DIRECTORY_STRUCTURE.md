@@ -66,15 +66,19 @@ Jizake/
 ├─ scripts/                            # ローカル実行バッチ（tsx）。Web アプリのビルド対象外
 │  ├─ import-sakenowa.ts               # さけのわ取り込み（冪等 upsert）
 │  ├─ seed.ts                          # seed-data/ の手作業データ投入（冪等 upsert）
+│  ├─ seed.test.ts                     # データ妥当性 + PGlite 統合（冪等・さけのわ共存・manual 付与）
 │  ├─ embed.ts                         # 説明文の差分埋め込み生成
 │  └─ lib/                             # スクリプト専用ヘルパ（データソース別サブディレクトリ）
-│     └─ sakenowa/
-│        ├─ client.ts                  # さけのわ API 取得
-│        ├─ schemas.ts                 # レスポンスの Zod 検証（境界）
-│        ├─ flavor-to-tags.ts          # フレーバー6軸→味タグ変換（純関数）
-│        ├─ flavor-to-tags.test.ts
-│        └─ fixtures/                  # 保存済みレスポンス（テスト用フィクスチャ）
+│     ├─ sakenowa/
+│     │  ├─ client.ts                  # さけのわ API 取得
+│     │  ├─ schemas.ts                 # レスポンスの Zod 検証（境界）
+│     │  ├─ flavor-to-tags.ts          # フレーバー6軸→味タグ変換（純関数）
+│     │  ├─ flavor-to-tags.test.ts
+│     │  └─ fixtures/                  # 保存済みレスポンス（テスト用フィクスチャ）
+│     └─ seed/                         # 手作業シード（データソース）の境界
+│        └─ schema.ts                  # seed-data/ の Zod 検証・型（境界）
 ├─ seed-data/                          # 手作業シード（説明文・種別タグ・読み仮名・URL・価格帯）。JSON/TS でレビュー可能
+│  └─ sakes.ts                         # 主要銘柄の自作説明文つきデータ（ロジックは置かない）
 ├─ src/
 │  ├─ app/                             # ルーティング＝機能境界（Next.js 規約）
 │  │  ├─ layout.tsx                    # ルートレイアウト（ヘッダ＋さけのわ帰属フッター常設）
