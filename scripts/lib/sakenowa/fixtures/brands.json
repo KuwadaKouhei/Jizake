@@ -1,0 +1,140 @@
+{
+  "copyright": "Sakenowa",
+  "brands": [
+    {
+      "id": 109,
+      "name": "新政",
+      "breweryId": 76
+    },
+    {
+      "id": 660,
+      "name": "而今",
+      "breweryId": 488
+    },
+    {
+      "id": 792,
+      "name": "風の森",
+      "breweryId": 589
+    },
+    {
+      "id": 1121,
+      "name": "仙禽",
+      "breweryId": 1168
+    },
+    {
+      "id": 144,
+      "name": "十四代",
+      "breweryId": 96
+    },
+    {
+      "id": 19,
+      "name": "田酒",
+      "breweryId": 16
+    },
+    {
+      "id": 1033,
+      "name": "作",
+      "breweryId": 835
+    },
+    {
+      "id": 2602,
+      "name": "AKABU",
+      "breweryId": 898
+    },
+    {
+      "id": 258,
+      "name": "鳳凰美田",
+      "breweryId": 183
+    },
+    {
+      "id": 1616,
+      "name": "冩楽",
+      "breweryId": 130
+    },
+    {
+      "id": 975,
+      "name": "鍋島",
+      "breweryId": 758
+    },
+    {
+      "id": 1349,
+      "name": "総乃寒菊",
+      "breweryId": 874
+    },
+    {
+      "id": 1179,
+      "name": "花陽浴",
+      "breweryId": 1121
+    },
+    {
+      "id": 819,
+      "name": "紀土",
+      "breweryId": 604
+    },
+    {
+      "id": 887,
+      "name": "獺祭",
+      "breweryId": 679
+    },
+    {
+      "id": 1,
+      "name": "新十津川",
+      "breweryId": 1
+    },
+    {
+      "id": 5,
+      "name": "亀甲蔵",
+      "breweryId": 4
+    },
+    {
+      "id": 7,
+      "name": "北の誉",
+      "breweryId": 3
+    },
+    {
+      "id": 8,
+      "name": "風のささやき",
+      "breweryId": 6
+    },
+    {
+      "id": 14,
+      "name": "杉玉",
+      "breweryId": 12
+    },
+    {
+      "id": 15,
+      "name": "由利正宗",
+      "breweryId": 51
+    },
+    {
+      "id": 16,
+      "name": "蔵物語",
+      "breweryId": 14
+    },
+    {
+      "id": 22,
+      "name": "玉垂",
+      "breweryId": 18
+    },
+    {
+      "id": 23,
+      "name": "菊駒",
+      "breweryId": 14
+    },
+    {
+      "id": 24,
+      "name": "涼霞",
+      "breweryId": 21
+    },
+    {
+      "id": 2583,
+      "name": "フラスカティ",
+      "breweryId": 1147
+    },
+    {
+      "id": 3541,
+      "name": "裸島",
+      "breweryId": 1317
+    }
+  ]
+}
