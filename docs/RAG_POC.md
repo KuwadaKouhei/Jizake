@@ -150,8 +150,11 @@ npm run rag:poc
 **運用上の注意（REVIEW T13 セキュリティ Consider）**:
 - `npm run rag:poc` は `DATABASE_URL` の DB に読み取りクエリを流す。**本番 DB を誤って指さない**よう、
   評価用 DB を明示指定して実行する（起動ログに接続先を確認する運用を推奨）。
-- `fabrication-guard.test.ts` の `proposeSakeSchema` は PoC 用の雛形。T14 で `api/chat/_lib/tools.ts` に
-  本番 structured output スキーマを確定したら、この E2E を本番スキーマの import に差し替える（境界のズレ防止）。
+- `fabrication-guard.test.ts` の `proposeSakeSchema` は PoC 用の雛形。**T14 で決着**（消し込み済み）:
+  本番スキーマ `proposeSakeInputSchema` は `api/chat/_lib/tools.ts` に確定したが、scripts は src/app を
+  import できない（DIRECTORY_STRUCTURE §5.2）ため差し替えはできない。**本番スキーマそのものでの捏造防止
+  E2E は `src/app/api/chat/_lib/tools.test.ts` に移設**し、PoC 雛形は同一構造で据え置いた。両者と tools.ts に
+  相互参照コメントを付けドリフトに気づける状態にした（T14 REVIEW PHIL S-1）。
 - `scripts/lib/rag-eval/` は使い捨て資産。実キー投入後に本 PoC の役目を終えたら、`fake-embedding.ts` を含め
   ハーネス一式は撤去してよい（恒久資産は `src/lib/ai/prompts.ts` のみ）。
 

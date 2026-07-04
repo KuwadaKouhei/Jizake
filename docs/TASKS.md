@@ -487,7 +487,7 @@
 | 受け入れ条件 | FR-08（品質リスク R3/R4 の解消。受け入れ条件を満たせる見込みの確定） |
 | 依存タスク | T12 |
 | ブランチ | `feature/T13-rag-poc` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑥完了。実 API キー（AI Gateway）・実 Supabase 未設定のため、
 > 「PoC の枠組み（評価ハーネス）＋ B-1 の実装」を成果物とし、精度の絶対値・重み確定・実 LLM 往復は
@@ -537,7 +537,89 @@
 | 受け入れ条件 | FR-08（チャットで質問→回答→複数提案、提案は実在銘柄＋詳細リンク、捏造しない） |
 | 依存タスク | T12, T13 |
 | ブランチ | `feature/T14-chat` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。作成/変更ファイルと設計判断:
+> - **① `src/app/api/chat/route.ts`（唯一の Route Handler）**: Zod で `messages` 配列長
+>   （最大 100）・1 メッセージのテキスト長（最大 4000）を最低限検証（DoS の最低限ガード。
+>   精緻なコスト上限は T15）。`createUIMessageStream({ execute })` で writer を得て、
+>   `streamText`（AI Gateway 経由 `gateway(CHAT_MODEL_ID)`・`CHAT_SYSTEM_PROMPT`・
+>   searchSake/proposeSake ツール・`stopWhen: stepCountIs(5)` でツール往復を許可）を回し、
+>   `writer.merge(result.toUIMessageStream())` で LLM テキスト・ツール往復と writer が書く
+>   data part を統合。`convertToModelMessages` は v6.0.219 で Promise を返すため `await`。
+>   `onError` はサーバ側で message のみログ（レスポンス本文は出さない）＋汎用文言を返す
+>   （内部詳細を漏らさない。DESIGN §6.2）。`dynamic="force-dynamic"`。認証不要（匿名可）。
+> - **チャットフローの捏造防止（要）**: proposeSake の `execute` が LLM の返した ID を
+>   `validateProposedSakeIds`（src/lib/rag。DB 存在検証）に通し、**実在銘柄のみ**を
+>   `data-proposedSakes` パートで送信。存在しない ID は黙って除外。tool result には件数だけ返し、
+>   LLM の自由文をカードにしない（ハルシネーション表示が構造的に不可能。DESIGN §2.6 二段目）。
+> - **② `src/app/api/chat/_lib/tools.ts`**: `createChatTools({ writer, retrieve?, validateProposedSakeIds? })`
+>   で生成（依存注入でユニットテスト可能）。searchSake は retriever（`retrieve`）を呼び候補上限
+>   `MAX_PROPOSED_CANDIDATES` で ID・名前・産地・タグに整形して LLM に返す（＝候補は DB 実在 ID のみ＝
+>   捏造防止の一段目）。proposeSake は Zod structured output（`proposeSakeInputSchema`。RAG_POC の
+>   雛形を本番スキーマに昇格）で ID＋理由を受ける。`ChatUIMessage`（data part 型付き UIMessage）を
+>   サーバ・UI で共有。
+> - **③ プロンプト**: T13 の `CHAT_SYSTEM_PROMPT` をそのまま使用（ツール名 searchSake/proposeSake・
+>   上限数・捏造禁止・インジェクション拒否が T14 のツール/データ形状と整合。微調整不要）。
+> - **④ `src/app/chat/page.tsx`・`_components/`**: `useChat`（`@ai-sdk/react@3.0.221`＝ai-v6 対応。
+>   ai@6 には `@ai-sdk/react` が別パッケージのため依存追加）で `/api/chat` とストリーミング。
+>   会話状態はクライアント保持のステートレス設計（DESIGN §2.6・D4）。LLM 応答はプレーンテキスト
+>   （`whitespace-pre-wrap`・`dangerouslySetInnerHTML` 禁止＝XSS 防止）、提案は検証済み
+>   `data-proposedSakes` からのみ `SakeCard` 共用で `/sake/[id]` リンク付き描画。空状態は
+>   「どんなお酒を求めていますか？」。site-header に「チャットで相談」導線を追加。
+> - **⑤ テスト**: generator は `src/app/api/chat/_lib/tools.test.ts` で固定応答モック（retriever/
+>   validator/writer 注入）により (a) 捏造 ID が検証で落ち検証済みカードのみ data part に載る
+>   (b) proposeSake 入力の Zod 境界検証 (c) searchSake が retriever を呼ぶ、を検証（実 API 非使用）。
+>   UI は useChat をモックし（chat-container.test.tsx）提案カード表示・プレーンテキスト・空状態・
+>   送信/無効・エラー表示、ChatMessages 単体（chat-messages.test.tsx）で空状態・HTML 非描画・
+>   検証済みカードのリンクを検証（全 381 テスト。lint 0 警告 / typecheck / format:check / build グリーン。
+>   T13 の 363 から +18）。
+> - **モデル ID の確度**: `src/lib/ai/models.ts` に `CHAT_MODEL_ID="anthropic/claude-haiku-4.5"` を
+>   追加（TECH_STACK §5 の表記に合わせた想定値）。**AI Gateway 上の正確なモデル ID は実キーでの
+>   疎通確認で確定させる TODO**（誤りがあればこの 1 箇所を修正。差し替えは定数変更のみ）。
+> - **T15 との境界（本タスクのスコープ外を明記）**: 往復数上限（初期 10）・メッセージ長以外の詳細な
+>   コスト上限・`maxOutputTokens`・レート制限（20 会話/日）・タイムアウト（30 秒）/障害フォールバック
+>   （検索誘導）・`chat_sessions`/`chat_messages` への保存は **T15**。T14 は基本フロー＋捏造防止に集中。
+>   本タスクの Zod では巨大ペイロードを弾く最低限の上限（messages 配列長・メッセージ長）のみ入れた。
+> - **残作業（実 LLM 疎通。実キー未設定のため未実施）**: `.env.local` に `AI_GATEWAY_API_KEY`＋
+>   Supabase 接続情報を設定し実データ（seed/embed）を投入 → 実際に `/chat` で Claude Haiku 4.5 との
+>   ヒアリング→searchSake→proposeSake→検証済みカード表示の往復を疎通確認 → モデル ID の正確性確定。
+>   ストリーミング/ツール往復のロジックは AI SDK v6 の実装で書いたが、実 API は叩いていない
+>   （ユニットは固定応答モック。TEST_PHILOSOPHY）。E2E（LLM モックエンドポイント）は T16。
+>
+> レビュー対応（2026-07-04・4 ペルソナ Should/Consider 反映。Blocker なし。捏造防止・XSS は「構造的に堅牢」と高評価）:
+> - **S-1（role 制限・SEC）**: chatRequestSchema の role を `z.enum(["user","assistant"])` に絞り、
+>   クライアントからの `system` ロール注入を禁止（system は常にサーバが CHAT_SYSTEM_PROMPT で組む）。
+> - **S-2（maxOutputTokens・SEC）**: streamText に `maxOutputTokens: MAX_OUTPUT_TOKENS(1024)` を追加し
+>   出力側コスト DoS を有界化（DESIGN §6.3 の最低限ガード前倒し）。
+> - **S-3（parts 配列長・SEC）**: 各メッセージの `parts` に `.max(MAX_PARTS_PER_MESSAGE(50))` を追加
+>   （1 メッセージへ大量 part を詰める増幅 DoS の最低限ガード）。
+> - **S-4（過去 data part を信頼境界外に・CODE）**: ステートレスで毎回全履歴が送られるため、過去
+>   assistant の `data-*` パートは「信頼できない echo」。`stripAssistantDataParts`（純関数・
+>   `_lib/strip-data-parts.ts`）で convertToModelMessages に渡す前に明示除去し、細工 data part が
+>   LLM コンテキストに入らないことをユニットテスト（除去・convertToModelMessages 後に data 内容が
+>   混ざらない）で固定。Zod の未知キー strip の暗黙挙動に依存せず明示的に落とす（併せてコメントに
+>   「偽装 data-* は Zod strip＋この除去で LLM/描画に到達しない」を明記。Consider SEC/CODE）。
+>   ※ `route.ts` から純関数を export すると Next.js が不正なルートエントリと解釈し webpack ビルドで
+>   型エラーになるため（Turbopack build では見逃す）、`_lib/strip-data-parts.ts` に切り出した。
+> - **S-5（エラー文言一本化・CODE）**: ユーザー向けエラー文言の単一情報源を UI（chat-container の固定文言）
+>   に一本化。サーバ onError は message のみログ＋エラーパートに徹し（画面には出さない旨をコメント明示）、
+>   二重管理の dead code を解消。実 API 疎通時のエラー表示確認は残作業（実キー投入後）。
+> - **S-6（/chat の First Load JS 遅延化・PERF）**: `_components/chat-boundary.tsx`（"use client"＋
+>   `next/dynamic` の `ssr:false`＋軽量スケルトン loading）を新設し、重い ChatContainer
+>   （ai + @ai-sdk/react + zod）を初期バンドルから分離。page.tsx（RSC）は LCP 要素（h1・説明文）を
+>   静的に残し `<ChatBoundary/>` を描画。**/chat の page エントリチャンクは webpack 実測で 9.4kB→3.6kB**
+>   に減り、ChatContainer 本体（レビュー計測の +498kB/gzip 118kB）は初期 First Load から外れ表示後に
+>   非同期取得される（見出しは即時表示）。
+> - **Consider C-2（CODE/PERF）**: chat-messages の提案カード key を `index` から先頭 sake.id（空提案のみ
+>   index フォールバック）へ安定化。**PHIL S-1**: fabrication-guard.test.ts（PoC 雛形）・tools.ts の本番
+>   proposeSakeInputSchema・tools.test.ts に相互参照コメントを付けドリフト検知可能にし、RAG_POC.md §6 の
+>   「本番スキーマに差し替える」TODO を「T14 で tools.test.ts に移設・雛形据え置きで決着」に更新（消し込み）。
+> - **見送り（T15 スコープ・記録のみ）**: 匿名レート制限・多数リクエスト連打対策・`chat_sessions` 保存・
+>   `maxDuration`・タイムアウト/フォールバック（検索誘導）・詳細な往復数上限は T15。ChatMessageItem の
+>   React.memo 化は往復が増える T15 以降に計測ベースで（早すぎる最適化回避）。
+> - レビュー対応後: 全 384 テスト（+3）・lint 0 警告・typecheck・format:check・build（Turbopack）グリーン。
+>   webpack ビルドでも型チェック通過を確認（Route Handler の export 規約違反を修正済み）。
 
 ### T15: チャット運用ガード（コスト上限・フォールバック・セッション保存）
 

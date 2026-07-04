@@ -25,8 +25,17 @@ import { seedSakes } from "../../seed";
  * （docs/RAG_POC.md の残作業）。ここではロジックの正しさを決定的に固める。
  */
 
-// proposeSake の structured output を模した Zod スキーマ（T14 のツール定義の雛形。
-// PoC で「スキーマ適合でも実在しない ID は落ちる」二段構えを検証するために置く）。
+// proposeSake の structured output を模した Zod スキーマ。
+//
+// T14 で本番スキーマ（proposeSakeInputSchema）は src/app/api/chat/_lib/tools.ts に確定した。
+// scripts は src/app を import できない（DIRECTORY_STRUCTURE §5.2: バッチは UI に依存しない）ため、
+// ここでは本番スキーマと**同一構造**の雛形を保持する（RAG_POC.md §6 の TODO への対応）。
+// 本番スキーマそのものでの捏造防止 E2E（実在 ID＋存在しない ID を検証で落とす）は、本番スキーマを
+// 直接 import できる src/app/api/chat/_lib/tools.test.ts に移設済み。本ファイルは PoC 資産として
+// retriever 精度ハーネスと同居する end-to-end 確認（seed-data の実銘柄での二段目検証）を担う。
+//
+// ドリフト注意（PHIL S-1）: 下記スキーマは tools.ts の proposeSakeInputSchema と同一構造を保つこと。
+// 本番スキーマを変えたら、この雛形と tools.test.ts の両方を追随させる（相互参照でズレに気づく）。
 const proposeSakeSchema = z.object({
   proposals: z
     .array(
