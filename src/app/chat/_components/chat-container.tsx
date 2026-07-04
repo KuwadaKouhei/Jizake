@@ -43,6 +43,12 @@ export function ChatContainer() {
     <div className="flex flex-col gap-4">
       <ChatMessages messages={messages} status={status} />
 
+      {/*
+        ユーザー向けエラー文言の単一情報源（S-5）。サーバ（route.ts の onError）は
+        message のみログに出しストリームにエラーを載せるだけで、文言は画面に出さない。
+        useChat は error オブジェクトの有無だけを見て、ここの固定文言を表示する。
+        タイムアウト時の検索ページ誘導など詳細フォールバックは T15。
+      */}
       {error ? (
         <p
           role="alert"
