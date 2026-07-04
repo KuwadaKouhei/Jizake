@@ -1,19 +1,20 @@
 # レビュー・監査結果（REVIEW）
 
-> 対象: `main...feature/T15-chat-guards`（T15 チャット運用ガード）
-> 実施日: 2026-07-04
-> レビュアー: code-reviewer / security-auditor / web-performance-auditor / philosophy-compliance-reviewer（4ペルソナ並行）
-> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T14: PR #14）
+> 対象: `main...feature/T16-e2e`（T16 E2E テスト整備・主要3導線）
+> 実施日: 2026-07-05
+> レビュアー: code-reviewer / security-auditor / philosophy-compliance-reviewer（3ペルソナ並行。UI/データの性能変更がないため性能監査は省略）
+> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T15: PR #15）
 
 ## 判定: ✅ マージ可
 
-Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `3f9a281`, `05ddcc7`, `9ee1112`）。修正後、全検証グリーン（423 テスト・lint 0 警告・typecheck・format・build）。
+Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T16 レビュー指摘対応`）。修正後、全検証グリーン（ユニット 423・E2E 6 passed / 4 skipped・lint 0 警告・typecheck・format・build）。
 
 ## 検証結果
 
-- test 47 ファイル / 423 件全パス（T15 で +39）
+- unit test 55 ファイル / 423 件全パス（E2E は Vitest 対象外）
+- E2E（実データ/実キー無し）: 6 passed / 4 skipped（安定動線が通り、フルフローは条件付き skip）
 - lint / typecheck / format:check / build すべてグリーン
-- セキュリティは「user_id 二段防御・捏造 ID 非保存・オープンリダイレクト対策は構造的に安全、Blocker なし」、思想準拠は「決定 D4/D5 に高準拠」と評価
+- 思想準拠は「高い準拠度・E2E は主要3導線のみで薄く・skip を正直に運用」、セキュリティは「シークレット直書きなし・最小権限・モックは信頼境界内」と評価
 
 ## 指摘と対応
 
@@ -25,31 +26,33 @@ Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コ
 
 | # | 出所 | 指摘 | 対応 |
 |---|---|---|---|
-| S-1 | コード/性能 | proposeSake 実行時点で保存するため、複数回呼び出しで「1 会話 1 セッション」(D4)が破れ、レート制限カウントも二重増加。保存 I/O がストリーム経路に乗る | 保存を `streamText` の `onFinish` に一本化。proposeSake は検証済み提案をリクエストスコープに蓄積するのみ。`after()` でレスポンス後にバックグラウンド保存。proposeSake 複数回でもセッションは 1 行 |
-| S-2 | コード | 保存される assistant 本文が in-flight 応答を含まず「（提案）」固定になり提案理由が残らない | onFinish の確定応答本文（`event.text`）を assistant 本文として保存。末尾 user の in-flight でも補完 |
-| S-3 | 思想 | 検索条件表現（SearchCriteria/toSearchQueryString/isEmptyCriteria/sanitizeCriteria）が検索・履歴・チャットの 3 機能で使われ Rule of Three の昇格トリガに到達（DIR-11 の予告） | `src/lib/search-query/` へ昇格（git mv で履歴保持）。3 機能の import を更新、DIRECTORY_STRUCTURE DIR-11・§2・DESIGN §2.2/§5.3 を更新 |
-| S-4 | セキュリティ | フォールバックの都道府県短縮形が部分一致で誤検出し得る | 「フルネーム完全一致優先→無ければ短縮形」の 2 パスに変更＋回帰テスト。/search 側で再検証される旨をコメント |
-| S-5 | コード | `conversation-guard` の docstring が自己矛盾（同一式の対比） | 「`turns >= MAX` ではなく `turns > MAX`」に修正（ロジックは正しく変更なし） |
+| S-1 | コード | フルフローのチャット検証が `.whitespace-pre-wrap.first()` でユーザー吹き出しにマッチし、実 LLM 応答を検証できていない（skip 中で気づけず「壊れても緑」になる） | アシスタント側（`.mr-auto` 配下）のテキストに限定＋非空を検証。未使用 `messageId` も削除 |
+| S-2 | コード | README のポート指定が `PLAYWRIGHT_PORT`（config の単一情報源）と不整合 | README に「起動ポートは `PLAYWRIGHT_PORT`（既定 3100）」を明記 |
+| S-3 | コード | auth フルフローの `waitForLoadState("networkidle")` が他 spec の role/text 方針とずれる（Playwright 非推奨） | 観測可能な要素（ログアウト表示 or `role=status`/`role=alert`）待ちに置換 |
+| S-4 | セキュリティ | e2e ジョブに `permissions` 明示がない（トップレベル継承はされているが自己文書化のため） | e2e ジョブに `permissions: contents: read` を明示（defense-in-depth）＋将来フルフロー Secrets 登録時に trace artifact を再評価する注記 |
 
 ### Consider（対応済み・記録）
 
-- 性能 S-1（匿名の Auth 往復回避）: Supabase auth cookie 名がプロジェクト依存で実キーなしでは確度検証不可、getCurrentUser は React.cache 済み。実キー投入後の TTFB 計測で判断する残作業として記録
-- C-3（maxDuration=60 と Vercel Hobby 実行時間上限の整合・AbortError 経路のフォールバック実挙動）: デプロイ TODO・実キー投入後の残作業に記録
-- 見送り（D5 準拠）: 匿名の IP/KV レート制限・ヒアリングのみ会話のカウント方式変更は乱用観測後
+- 検索フルフローの特定銘柄依存（0 件許容分岐は既にあり）、signup の `getByLabel` 部分一致、SSE モックの SDK プロトコル依存は skip ゲート下で実害小。SDK 更新時の回帰確認対象として記録
+- 思想: `retries: 2`（CI）はインフラ瞬断吸収用でフレーキー常態化を許すものでない旨（main から既存・本 PR 未変更）
 
 ## 受け入れ条件の充足
 
-- FR-08（安定運用）＋非機能（コスト・可用性）: 往復数上限（10）・maxOutputTokens（1024）・タイムアウト（30s）・maxDuration（60s）でコスト/実行時間を有界化、ログインユーザーの 20 会話/日レート制限、LLM 障害時のフォールバック検索導線、確定提案のセッション保存（検証済み ID のみ・匿名は保存しない・user_id 二段防御）をテストで担保 ✅
-- 制約: 実 LLM 往復での onFinish 保存・タイムアウトフォールバックの実挙動・レート制限の実 DB カウントは実キー投入後の残作業。ロジックは PGlite＋モックで検証済み
+- 主要 3 導線の E2E（検索→一覧→詳細・ログイン・チャット1往復）: 安定動線（DB/キー無しでも通る画面到達）を常時検証し、実データ/実キー依存のフルフローは `test.skip(!process.env.X)` で条件付き実行。チャット1往復は `page.route` の SSE モックで安定動線化（TEST_PHILOSOPHY「LLM は必ずモック」）✅
+- CI: `checks` と分離した並列 `e2e` ジョブ（unit の速度維持）、Chromium 1 ブラウザ、Secrets 未登録なら安全に skip でグリーン、実キー投入時に自動でフルフローが有効化 ✅
 
-## セキュリティ・設計の特記
+## 実データ/実キーが無い環境での画面到達（build&start 実測）
 
-- **ユーザーデータ分離**: `saveConfirmedProposal`/`isChatRateLimited` は user_id を引数でなく `getCurrentUser` から強制取得（履歴 T09 と同型の二段防御）、`proposed_sake_ids` は `validateProposedSakeIds` 通過済みの検証済み ID のみ、匿名は保存しない、RLS が二段目
-- **フォールバック**: `toSearchQueryString` で内部 `/search` パスのみ生成、ユーザー自由文を q に載せない、既知語彙の完全一致のみ（オープンリダイレクトなし）
-- **決定 D4/D5**: 1 会話 1 セッション・確定提案のみ保存・匿名の連打先回り対策はしない を遵守
-- T14 の捏造防止フローは無改変で維持
+- 200: `/prefectures`（静的）・`/login`・`/signup`・`/chat`
+- 307: 未ログイン `/history` → `/login?next=%2Fhistory`（proxy ガードが DB 非依存で機能）
+- 500（フルフロー skip 対象）: `/`・`/search`・`/sake/[id]`・`/prefectures/[code]`（recommend/retriever が DB を要求）
 
-## 次タスク（T16）への引き継ぎ
+## 設計・思想の特記
 
-- E2E（Playwright）3 導線: 検索→一覧→詳細、ログイン、チャット 1 往復
-- 実キー投入後: onFinish 保存の実往復疎通・タイムアウトフォールバック・レート制限の実 DB カウント・匿名 Auth 往復の TTFB 計測
+- 安定動線／フルフローの 2 層分割と `test.skip` ゲート、`e2e/_support/env.ts` への判定集約が一貫。skip 理由・実行手順を `e2e/README.md` に正直に記録（誤魔化しでない）
+- webServer を `next build && next start`（本番挙動）に切替（T05 の申し送り対応）、readiness を DB 非依存の `/prefectures` に向けて DB 無しでも起動判定を通す
+- 待機は role/text ベースで sleep 不使用、E2E は主要3導線のみ（TEST_PHILOSOPHY の比率方針）
+
+## 残作業（実キー投入後）
+
+- フルフロー E2E（検索・ログイン・チャット実 LLM 往復）は Supabase/AI Gateway の Secrets 登録で自動有効化。CI で trace artifact のアクセス範囲を再評価
