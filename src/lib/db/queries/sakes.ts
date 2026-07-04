@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { cache } from "react";
 
@@ -129,6 +129,56 @@ async function selectSakeTags(
 }
 
 /**
+ * 複数銘柄のタグを 1 クエリでまとめて取得し、sake_id をキーにグルーピングする。
+ *
+ * 一覧（県別・検索・推薦）で SakeSummary を複数件返す際、銘柄ごとに
+ * selectSakeTags を呼ぶと N+1 になる。銘柄 ID の配列で sake_tags を一括取得し、
+ * メモリで束ねることで、銘柄数によらずタグ取得を 1 クエリに抑える
+ * （TASKS T06 ①・DESIGN §6.1 の N+1 回避）。
+ *
+ * 返り値の各配列は category → name の安定順（各銘柄内でも一覧全体でも順序が安定）。
+ */
+async function selectTagsBySakeIds(
+  db: Db,
+  sakeIds: string[],
+): Promise<Map<string, SakeTagSummary[]>> {
+  const grouped = new Map<string, SakeTagSummary[]>();
+  if (sakeIds.length === 0) {
+    return grouped;
+  }
+
+  const rows = await db
+    .select({
+      sakeId: sakeTags.sakeId,
+      id: tags.id,
+      name: tags.name,
+      category: tags.category,
+      source: sakeTags.source,
+    })
+    .from(sakeTags)
+    .innerJoin(tags, eq(tags.id, sakeTags.tagId))
+    .where(inArray(sakeTags.sakeId, sakeIds))
+    // sake_id 単位でまとめた上で、各銘柄内は category → name の安定順にする。
+    .orderBy(asc(sakeTags.sakeId), asc(tags.category), asc(tags.name));
+
+  for (const row of rows) {
+    const list = grouped.get(row.sakeId);
+    const tag: SakeTagSummary = {
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      source: row.source,
+    };
+    if (list) {
+      list.push(tag);
+    } else {
+      grouped.set(row.sakeId, [tag]);
+    }
+  }
+  return grouped;
+}
+
+/**
  * 詳細ページ用に、銘柄＋蔵元＋タグを取得する（db を明示的に受ける下位関数）。
  * テストでは PGlite を差し込むためにこちらを直接呼ぶ。
  */
@@ -197,4 +247,59 @@ export async function selectSakeDetail(
  */
 export const getSakeDetail = cache((id: string): Promise<SakeDetail | null> =>
   selectSakeDetail(getDb(), id),
+);
+
+/**
+ * 都道府県別に銘柄＋蔵元＋主要タグを取得する（db を明示的に受ける下位関数）。
+ * テストでは PGlite を差し込むためにこちらを直接呼ぶ。
+ *
+ * - 蔵元は INNER JOIN し、breweries.prefecture_code で絞り込む（DESIGN §2.1・
+ *   DATABASE §3 index 1: breweries_prefecture_code_idx）。
+ * - 並び順は銘柄名昇順（安定順。id を第二キーにして同名でも決定的にする）。
+ * - タグは selectTagsBySakeIds で 1 クエリ一括取得しメモリで束ねる（N+1 回避）。
+ *   結果は銘柄 1 件＋タグ 1 件の計 2 クエリで、県内銘柄数に依存しない。
+ */
+export async function selectSakesByPrefecture(
+  db: Db,
+  prefectureCode: string,
+): Promise<SakeSummary[]> {
+  const rows = await db
+    .select({
+      id: sakes.id,
+      name: sakes.name,
+      breweryName: breweries.name,
+      prefectureCode: breweries.prefectureCode,
+    })
+    .from(sakes)
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(eq(breweries.prefectureCode, prefectureCode))
+    .orderBy(asc(sakes.name), asc(sakes.id));
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const tagsBySakeId = await selectTagsBySakeIds(
+    db,
+    rows.map((row) => row.id),
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    breweryName: row.breweryName,
+    prefectureCode: row.prefectureCode,
+    tags: tagsBySakeId.get(row.id) ?? [],
+  }));
+}
+
+/**
+ * 都道府県別の銘柄一覧を取得する（RSC から直接呼ぶ公開関数）。
+ *
+ * 同一リクエスト内で generateMetadata と本体レンダリングから重複呼び出しされても
+ * DB クエリが二重に走らないよう React.cache でメモ化する（getSakeDetail と同型）。
+ */
+export const getSakesByPrefecture = cache(
+  (prefectureCode: string): Promise<SakeSummary[]> =>
+    selectSakesByPrefecture(getDb(), prefectureCode),
 );

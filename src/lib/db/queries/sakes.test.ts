@@ -6,7 +6,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import * as schema from "@/lib/db/schema";
 
-import { isValidSakeId, selectSakeDetail } from "./sakes";
+import {
+  isValidSakeId,
+  selectSakeDetail,
+  selectSakesByPrefecture,
+} from "./sakes";
 
 /**
  * カタログ読み取りクエリ（詳細取得）のテスト。
@@ -47,6 +51,9 @@ const MINIMAL_SAKE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const MISSING_SAKE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const TYPE_TAG_ID = "e1111111-1111-4111-8111-111111111111";
 const TASTE_TAG_ID = "e2222222-2222-4222-8222-222222222222";
+// 別県（新潟 15）の蔵元・銘柄。県別一覧の絞り込み（他県を混ぜない）を検証する。
+const NIIGATA_BREWERY_ID = "a1111111-1111-4111-8111-111111111111";
+const NIIGATA_SAKE_ID = "b1111111-1111-4111-8111-111111111111";
 
 beforeAll(async () => {
   // Supabase 環境のスタブ（0002 のトリガ・RLS DDL が前提とする。既存テストと同型）
@@ -93,6 +100,18 @@ beforeAll(async () => {
     name: "最小構成酒",
   });
 
+  // 別県（新潟 15）の蔵元＋銘柄。県別一覧が prefecture_code で正しく絞ることの検証用。
+  await orm.insert(schema.breweries).values({
+    id: NIIGATA_BREWERY_ID,
+    name: "八海醸造",
+    prefectureCode: "15",
+  });
+  await orm.insert(schema.sakes).values({
+    id: NIIGATA_SAKE_ID,
+    breweryId: NIIGATA_BREWERY_ID,
+    name: "八海山 純米吟醸",
+  });
+
   await orm.insert(schema.tags).values([
     { id: TYPE_TAG_ID, name: "純米大吟醸", category: "type" },
     { id: TASTE_TAG_ID, name: "華やか", category: "taste" },
@@ -100,6 +119,9 @@ beforeAll(async () => {
   await orm.insert(schema.sakeTags).values([
     { sakeId: FULL_SAKE_ID, tagId: TYPE_TAG_ID, source: "manual" },
     { sakeId: FULL_SAKE_ID, tagId: TASTE_TAG_ID, source: "sakenowa" },
+    // 新潟の銘柄にもタグを付け、一括取得（selectTagsBySakeIds）が
+    // 銘柄ごとに正しく束ねることを検証できるようにする。
+    { sakeId: NIIGATA_SAKE_ID, tagId: TYPE_TAG_ID, source: "sakenowa" },
   ]);
 });
 
@@ -174,5 +196,70 @@ describe("selectSakeDetail", () => {
 
   it("UUID 書式でない id は DB に問い合わせず null を返す", async () => {
     expect(await selectSakeDetail(orm, "not-a-uuid")).toBeNull();
+  });
+});
+
+describe("selectSakesByPrefecture", () => {
+  it("指定した都道府県の銘柄のみを蔵元 JOIN で返す（FR-07）", async () => {
+    const list = await selectSakesByPrefecture(orm, "35"); // 山口
+
+    const ids = list.map((sake) => sake.id);
+    expect(ids).toContain(FULL_SAKE_ID);
+    expect(ids).toContain(MINIMAL_SAKE_ID);
+    // 他県（新潟）の銘柄は混ざらない
+    expect(ids).not.toContain(NIIGATA_SAKE_ID);
+    for (const sake of list) {
+      expect(sake.prefectureCode).toBe("35");
+      expect(sake.breweryName).toBe("旭酒造");
+    }
+  });
+
+  it("各銘柄に主要タグを束ねて返す（N+1 を避けた一括取得）", async () => {
+    const list = await selectSakesByPrefecture(orm, "35");
+    const full = list.find((sake) => sake.id === FULL_SAKE_ID);
+    const minimal = list.find((sake) => sake.id === MINIMAL_SAKE_ID);
+
+    // FULL は 2 タグ（category → name 順）
+    expect(full?.tags).toEqual([
+      {
+        id: TASTE_TAG_ID,
+        name: "華やか",
+        category: "taste",
+        source: "sakenowa",
+      },
+      {
+        id: TYPE_TAG_ID,
+        name: "純米大吟醸",
+        category: "type",
+        source: "manual",
+      },
+    ]);
+    // タグ無しの銘柄は空配列（他銘柄のタグが漏れ込まない）
+    expect(minimal?.tags).toEqual([]);
+  });
+
+  it("別県の銘柄には、その県のタグだけが束ねられる", async () => {
+    const list = await selectSakesByPrefecture(orm, "15"); // 新潟
+    expect(list).toHaveLength(1);
+    expect(list[0]?.id).toBe(NIIGATA_SAKE_ID);
+    expect(list[0]?.tags).toEqual([
+      {
+        id: TYPE_TAG_ID,
+        name: "純米大吟醸",
+        category: "type",
+        source: "sakenowa",
+      },
+    ]);
+  });
+
+  it("並び順は呼び出し間で決定的である（安定順）", async () => {
+    const first = await selectSakesByPrefecture(orm, "35");
+    const second = await selectSakesByPrefecture(orm, "35");
+    expect(first.map((s) => s.id)).toEqual(second.map((s) => s.id));
+  });
+
+  it("銘柄が存在しない都道府県は空配列を返す（空状態メッセージへ）", async () => {
+    const list = await selectSakesByPrefecture(orm, "47"); // 沖縄（未投入）
+    expect(list).toEqual([]);
   });
 });
