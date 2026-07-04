@@ -148,6 +148,19 @@
 > （ページの notFound 分岐・空状態・メタデータ・選択 UI の全 47 リンク・地方グルーピング）で実施
 > （全 122 テストグリーン。lint / typecheck / format:check / build 済み）。
 > ブランチ名は指示に従い `feature/T06-prefecture-list`（TASKS 当初案 `feature/T06-prefectures` から変更）。
+>
+> レビュー対応（2026-07-04・4 ペルソナ Should 反映）: ①**ページネーション（24 件/頁）を実装**。
+> `PAGE_SIZE=24` 定数（DESIGN §6.1）を定義し、`selectSakesByPrefecture(db, code, page)` に
+> `limit/offset` と総件数 count クエリを追加、返り値を `{ sakes, total, page, pageSize }` に変更
+> （`getSakesByPrefecture` の React.cache も page をキーに含める）。タグ一括取得はそのページ分の
+> 銘柄 ID のみに渡すため計 3 クエリ（count + 一覧 + タグ）。ページは `_lib/pagination.ts` の純関数
+> `parsePageParam`（0・負・非数・小数は 1 に丸め）/`totalPageCount`（切り上げ・0 件でも 1）で処理し、
+> 総ページ数超過は最終ページへ `redirect`。UI に前へ/次へ・現在/総ページのページャ（1 頁に収まる県は非表示）、
+> 「N 件」は総件数を表示。②**`generateStaticParams` を追加**して 47 コードをビルド時プリレンダ対象化
+> （build で 5→52 静的生成。?page= の searchParams のため Route 判定上は ƒ だが 47 パスは事前生成＋ISR 併用。
+> 完全静的化はパスセグメント化する将来の最適化余地としてコメント記載）。追加テスト: PGlite で 30 件投入の
+> 2 頁分割・page=2 内容・範囲外・総件数、純関数のページ丸め、SSR でページャ表示/非表示・redirect・
+> 静的パラメータ（全 136 テストグリーン）。
 
 ### T07: 検索機能
 
