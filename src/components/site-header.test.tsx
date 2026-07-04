@@ -1,65 +1,80 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { AuthUser } from "@/lib/auth/server";
+
+// getCurrentUser をモックしてログイン状態を切り替える。
+// signOut は Server Action のため呼び出しはせず、フォーム描画のみ確認する。
+const { getCurrentUser } = vi.hoisted(() => ({
+  getCurrentUser: vi.fn<() => Promise<AuthUser | null>>(),
+}));
+vi.mock("@/lib/auth/server", () => ({ getCurrentUser }));
+vi.mock("@/lib/auth/actions", () => ({
+  signOut: async () => {},
+}));
 
 import { SiteHeader } from "@/components/site-header";
 
-afterEach(cleanup);
+async function renderHeader(): Promise<string> {
+  return renderToStaticMarkup(await SiteHeader());
+}
 
-describe("SiteHeader", () => {
-  it("サイト名 Jizake がホームへのリンクとして表示される", () => {
-    render(<SiteHeader />);
+beforeEach(() => {
+  getCurrentUser.mockReset();
+});
 
-    const brand = screen.getByRole("link", { name: "Jizake" });
-
-    expect(brand.getAttribute("href")).toBe("/");
+describe("SiteHeader — 共通導線", () => {
+  it("サイト名 Jizake がホームへのリンクとして表示される", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    const html = await renderHeader();
+    expect(html).toContain(">Jizake</a>");
+    expect(html).toContain('href="/"');
   });
 
-  it("メインナビゲーションにホームへの導線がある", () => {
-    render(<SiteHeader />);
+  it("実装済み機能（ホーム・検索・地酒を探す）への導線がある", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    const html = await renderHeader();
+    expect(html).toContain(">ホーム</a>");
+    expect(html).toContain('href="/search"');
+    expect(html).toContain('href="/prefectures"');
+  });
+});
 
-    const nav = screen.getByRole("navigation", {
-      name: "メインナビゲーション",
-    });
-    const home = within(nav).getByRole("link", { name: "ホーム" });
+describe("SiteHeader — 未ログイン", () => {
+  beforeEach(() => getCurrentUser.mockResolvedValue(null));
 
-    expect(home.getAttribute("href")).toBe("/");
+  it("ログイン・新規登録への導線を出す", async () => {
+    const html = await renderHeader();
+    expect(html).toContain('href="/login"');
+    expect(html).toContain('href="/signup"');
   });
 
-  it("実装済みの都道府県別一覧（/prefectures）への導線がある（T06）", () => {
-    render(<SiteHeader />);
+  it("履歴リンク・ログアウトボタンは出さない", async () => {
+    const html = await renderHeader();
+    expect(html).not.toContain('href="/history"');
+    expect(html).not.toContain("ログアウト");
+  });
+});
 
-    const nav = screen.getByRole("navigation", {
-      name: "メインナビゲーション",
-    });
-    const prefectures = within(nav).getByRole("link", { name: "地酒を探す" });
+describe("SiteHeader — ログイン済み", () => {
+  beforeEach(() =>
+    getCurrentUser.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      email: "user@example.com",
+    }),
+  );
 
-    expect(prefectures.getAttribute("href")).toBe("/prefectures");
+  it("履歴リンクとログアウト（フォーム）を出す", async () => {
+    const html = await renderHeader();
+    expect(html).toContain('href="/history"');
+    expect(html).toContain("<form");
+    expect(html).toContain("ログアウト");
   });
 
-  it("実装済みの検索（/search）への導線がある（T07）", () => {
-    render(<SiteHeader />);
-
-    const nav = screen.getByRole("navigation", {
-      name: "メインナビゲーション",
-    });
-    const search = within(nav).getByRole("link", { name: "検索" });
-
-    expect(search.getAttribute("href")).toBe("/search");
-  });
-
-  it("未実装機能への導線を出さない（TASKS 運用ルール: 許可リストのみ）", () => {
-    render(<SiteHeader />);
-
-    // 実装済みで導線を出してよいのはホーム・検索・都道府県別一覧のみ（T07 時点）。
-    const allowed = new Set(["/", "/search", "/prefectures"]);
-    const hrefs = screen
-      .getAllByRole("link")
-      .map((link) => link.getAttribute("href"));
-
-    expect(hrefs.length).toBeGreaterThan(0);
-    for (const href of hrefs) {
-      expect(allowed.has(href ?? "")).toBe(true);
-    }
+  it("ログイン・新規登録への導線は出さない", async () => {
+    const html = await renderHeader();
+    expect(html).not.toContain('href="/login"');
+    expect(html).not.toContain('href="/signup"');
   });
 });

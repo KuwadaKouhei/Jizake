@@ -171,7 +171,7 @@
 | 受け入れ条件 | FR-06（全条件）、FR-02（タグをキーに絞り込める） |
 | 依存タスク | T05。T06 と並行可 |
 | ブランチ | `feature/T07-search` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。設計判断:
 > - **味タグは AND 絞り込み**（「辛口かつ淡麗」で絞る）。タグごとに sake_tags×tags の EXISTS を
@@ -198,7 +198,46 @@
 | 受け入れ条件 | FR-04（サインアップ／ログイン／ログアウト） |
 | 依存タスク | T02（profiles トリガ）、T01。T05〜T07 と並行可 |
 | ブランチ | `feature/T08-auth` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。設計判断と実装内容:
+> - **@supabase/ssr 標準パターン**: `src/lib/auth/` に境界を閉じ、`@supabase/*` import はここのみに限定
+>   （DIRECTORY_STRUCTURE §5.2）。`server.ts`（RSC/Action 用 `createServerClient`＋`getCurrentUser`。
+>   supabase-js の User 型を `AuthUser`= `{id, email}` に変換して外へ漏らさない）／`client.ts`
+>   （`createBrowserClient`。今回は未使用だが標準パターンとして用意）／`session.ts`（middleware 用
+>   `updateSession`）を分離。`env.ts` で公開接続情報を**遅延取得**し、環境変数未設定でも import・ビルドが
+>   壊れないようにした（ランタイムで認証を使うと明確なエラー。閲覧・検索など匿名機能は動く）。
+> - **middleware → proxy へ改名**: Next.js 16.2 が `middleware` を deprecated と警告するため、
+>   `src/proxy.ts`（export `proxy`）に改名（DIRECTORY_STRUCTURE §2 注記の許容範囲）。matcher は
+>   @supabase/ssr 公式推奨。`getUser()` で実トークン検証し、`getSession()`（Cookie 無検証）は使わない。
+> - **ルート保護は /history のみ**（DESIGN §2.3）。指示スコープに従い**本タスクで有効化**（未ログインで
+>   `/history` → `/login?next=/history`）。判定は純関数 `redirect.ts`（`isProtectedPath`・
+>   `sanitizeRedirectPath`・`resolveAfterLogin`・`buildLoginRedirect`）に切り出し、境界一致で `/historyx`
+>   を誤保護しないことも検証。他ページは未ログインでも閲覧可（Progressive Personalization）。
+> - **オープンリダイレクト防止**（REVIEW T05 引き継ぎ・DESIGN §6.2）: `?next=` は自サイト内パスのみ許可
+>   （先頭 `/`・`//` とプロトコル相対・バックスラッシュ・制御文字を弾く純関数）。Server Action の成功遷移・
+>   ページの既ログイン遷移・フォームの hidden の 3 箇所すべてで検証（多層防御）。
+> - **入力バリデーション**（`validation.ts`）: メール形式＋パスワード長（6..72）を Zod 純関数で検証。
+>   エラー文言（`messages.ts`）はアカウント存在の推測を防ぐ汎用化（ログイン失敗はメール不存在と
+>   パスワード誤りを区別しない）。ともにユニットテスト。
+> - **ページ/ヘッダー**: `login`/`signup` は RSC で既ログインなら遷移、`AuthForm`（Client・useActionState）で
+>   エラー表示。ヘッダーは async RSC 化し、ログイン状態で導線を出し分け（未: ログイン/新規登録、
+>   済: 履歴＋ログアウト〔Server Action フォーム〕）。`/history` は保護枠のみ（中身は T09）。
+> - パスワードのハッシュ化・セッション管理・CSRF は Supabase Auth／@supabase/ssr に委任（自前実装なし）。
+>   認証 Cookie は @supabase/ssr が httpOnly で扱う。
+> - テストは純関数（redirect 15・validation 7・messages 3）＋ SSR 出力/RTL（ヘッダー状態別・login/history の
+>   リダイレクト分岐・AuthForm）で実施（全 215 テスト。lint/typecheck/format:check/build グリーン）。
+> - T09 との整合: TASKS T09 ④「/history ガードを middleware で有効化」は本タスクで先行実装済み。
+>   T09 では履歴記録 Server Action・`/history` の一覧クエリ（user_id はセッション強制）を実装する。
+>
+> **残作業（Supabase 実プロジェクト未作成のため持ち越し。実キーがないと疎通不可）**:
+> 1. Supabase プロジェクト作成後、`.env.local` に `NEXT_PUBLIC_SUPABASE_URL`・`NEXT_PUBLIC_SUPABASE_ANON_KEY`
+>    を設定（T02 残作業と同時）→ 実際のサインアップ／ログイン／ログアウト／セッション維持の疎通確認。
+> 2. サインアップ時の `profiles` 自動作成トリガ（DATABASE §2.5）が効くことの実環境確認。
+> 3. Supabase ダッシュボードでメール確認（Confirm email）設定の確認: 既定 ON だと signUp 直後は
+>    未確認セッションになる可能性がある。PoC 段階では Confirm email を OFF にするか、確認メール導線を
+>    追加するか運用判断が必要（本実装は signUp 成功で next へ遷移する前提。実環境で挙動確認）。
+> 4. Supabase クライアントを直接叩く統合テスト（実キー前提）と E2E（サインアップ・ログイン）は T16 で実施。
 
 ### T09: 履歴記録と履歴画面
 

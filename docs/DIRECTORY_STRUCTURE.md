@@ -159,7 +159,7 @@ Jizake/
 │  │  └─ constants/                    # ─ アプリ全体のドメイン定数のみ ─
 │  │     ├─ prefectures.ts             # JIS 都道府県コードマスタ（47件固定、決定 D2）
 │  │     └─ price-ranges.ts            # 価格帯3区分の表示名
-│  └─ middleware.ts                    # Supabase セッション更新＋ /history ガード（lib/auth/session.ts を呼ぶ）
+│  └─ proxy.ts                         # Supabase セッション更新＋ /history ガード（lib/auth/session.ts を呼ぶ。旧 middleware.ts）
 ├─ .env.example                        # 必要な環境変数の一覧（実値はコミットしない）
 ├─ components.json                     # shadcn/ui CLI 設定
 ├─ drizzle.config.ts
@@ -172,6 +172,9 @@ Jizake/
 
 > 注: `src/middleware.ts` は Next.js 16 系で `proxy.ts` への改名が推奨される場合、実装時に採用バージョンの
 > 公式ドキュメントに従って改名してよい（配置は `src/` 直下のまま。本書の構造には影響しない）。
+> **T08 で `src/proxy.ts`（export `proxy`）に改名済み**（Next.js 16.2 が `middleware` を deprecated と警告し、
+> ビルド時に `ƒ Proxy (Middleware)` として認識されるため）。他ドキュメント（DESIGN §2.3・TASKS T08/T09）が
+> 「middleware」と記す箇所は、この `src/proxy.ts` を指す。
 
 ---
 
