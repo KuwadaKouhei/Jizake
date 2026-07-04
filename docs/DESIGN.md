@@ -184,7 +184,7 @@ seed-data/                   # 説明文・種別・読み仮名・価格帯の 
 | 項目 | 内容 |
 |---|---|
 | 責務 | さけのわ API 取り込み＋手作業シードのハイブリッド投入（FR-01、FEASIBILITY §1.4） |
-| `import-sakenowa.ts` | areas / brands / breweries / rankings / flavor-charts / brand-flavor-tags を取得し、**さけのわ brandId を自然キーに冪等 upsert**。フレーバーチャート6軸をしきい値（定数）で味タグ（淡麗/濃醇/華やか等）へ機械変換 |
+| `import-sakenowa.ts` | areas / brands / breweries / rankings / flavor-charts / brand-flavor-tags を取得し、**さけのわ brandId を自然キーに冪等 upsert**。フレーバーチャート6軸をしきい値（定数）で味タグ（華やか/芳醇/重厚/穏やか/ドライ/軽快）へ機械変換 |
 | `seed.ts` | `seed-data/` の JSON/TS（説明文・種別タグ・読み仮名・公式URL・価格帯区分）を upsert。説明文は必ず自作（著作権、FEASIBILITY R2） |
 | `embed.ts` | 説明文を持つ銘柄の埋め込みを生成し `SakeEmbedding` へ upsert。**説明文のハッシュを保存し、変更があった銘柄のみ差分再埋め込み**（コスト最小化） |
 | 実行 | ローカル手動実行（`npm run import:sakenowa` 等）。API 直参照はせずスナップショット化（さけのわ提供終了リスクの遮断） |
