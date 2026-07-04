@@ -1,0 +1,11 @@
+# ビルド成果物・生成物
+.next/
+out/
+build/
+coverage/
+node_modules/
+package-lock.json
+next-env.d.ts
+
+# 設計ドキュメント（日本語 Markdown は Prettier の整形対象にしない）
+*.md

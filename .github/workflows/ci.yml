@@ -1,0 +1,47 @@
+# CI: PR 毎に lint + typecheck + Vitest + build を実行する（TASKS T01 ④、TEST_PHILOSOPHY CI ゲート）。
+# Playwright E2E ジョブは T16 で追加する。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# npm ci で依存のスクリプトを実行するため、トークンは最小権限に絞る
+permissions:
+  contents: read
+
+# 同一ブランチへの連続 push で古いランを打ち切る（Actions 無料枠の節約）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (Vitest)
+        run: npm test
+
+      # main は常に起動可能を保つ（GIT_CONVENTIONS）。ビルド不能なコードのマージを防ぐ
+      - name: Build
+        run: npm run build
