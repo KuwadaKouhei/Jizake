@@ -2,6 +2,10 @@
  * 価格帯 3 区分の表示名。
  * 値は DATABASE.md の CHECK 制約（sakes.price_range）と一致させる
  * （FEASIBILITY §2.2 案C。ベストエフォート項目）。
+ *
+ * 注意: value は src/lib/db/schema.ts で CHECK 制約の SQL リテラルへ
+ * sql.raw 展開されるため、必ず /^[a-z0-9_]+$/ の形式にすること
+ * （schema.ts 側でも同パターンをアサーションしている）。
  */
 export type PriceRangeValue = "under_1500" | "from_1500_to_3000" | "over_3000";
 

@@ -26,7 +26,18 @@ import { PRICE_RANGES } from "@/lib/constants/price-ranges";
  */
 
 // 価格帯 CHECK は src/lib/constants/price-ranges.ts を単一情報源として組み立てる
-// （CHECK 制約はパラメータ化できないため sql.raw でリテラルに展開する）
+// （CHECK 制約はパラメータ化できないため sql.raw でリテラルに展開する）。
+// sql.raw に展開する値は SQL リテラルとして安全な形式（小文字英数と _ のみ）に
+// 限定し、将来の区分追加でクォート等が紛れ込んだら即座に失敗させる
+// （T02 レビュー Consider の引き継ぎ対応）。
+const SQL_LITERAL_SAFE_PATTERN = /^[a-z0-9_]+$/;
+for (const range of PRICE_RANGES) {
+  if (!SQL_LITERAL_SAFE_PATTERN.test(range.value)) {
+    throw new Error(
+      `price-ranges.ts の value "${range.value}" は sql.raw へ展開できない形式です（許容: ${SQL_LITERAL_SAFE_PATTERN}）`,
+    );
+  }
+}
 const priceRangeList = sql.raw(
   PRICE_RANGES.map((range) => `'${range.value}'`).join(", "),
 );

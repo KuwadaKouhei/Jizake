@@ -1,0 +1,135 @@
+{
+  "copyright": "Sakenowa",
+  "breweries": [
+    {
+      "id": 1,
+      "name": "金滴酒造",
+      "areaId": 1
+    },
+    {
+      "id": 3,
+      "name": "合同酒精",
+      "areaId": 1
+    },
+    {
+      "id": 4,
+      "name": "田中酒造",
+      "areaId": 1
+    },
+    {
+      "id": 6,
+      "name": "高砂酒造",
+      "areaId": 1
+    },
+    {
+      "id": 12,
+      "name": "桃川",
+      "areaId": 2
+    },
+    {
+      "id": 14,
+      "name": "八戸酒類",
+      "areaId": 2
+    },
+    {
+      "id": 16,
+      "name": "西田酒造店",
+      "areaId": 2
+    },
+    {
+      "id": 18,
+      "name": "中村亀吉",
+      "areaId": 2
+    },
+    {
+      "id": 21,
+      "name": "福来",
+      "areaId": 3
+    },
+    {
+      "id": 51,
+      "name": "齋彌酒造店",
+      "areaId": 5
+    },
+    {
+      "id": 76,
+      "name": "新政酒造",
+      "areaId": 5
+    },
+    {
+      "id": 96,
+      "name": "高木酒造",
+      "areaId": 6
+    },
+    {
+      "id": 130,
+      "name": "宮泉銘醸",
+      "areaId": 7
+    },
+    {
+      "id": 183,
+      "name": "小林酒造",
+      "areaId": 9
+    },
+    {
+      "id": 488,
+      "name": "木屋正酒造",
+      "areaId": 24
+    },
+    {
+      "id": 589,
+      "name": "油長酒造",
+      "areaId": 29
+    },
+    {
+      "id": 604,
+      "name": "平和酒造",
+      "areaId": 30
+    },
+    {
+      "id": 679,
+      "name": "獺祭",
+      "areaId": 35
+    },
+    {
+      "id": 758,
+      "name": "富久千代酒造",
+      "areaId": 41
+    },
+    {
+      "id": 835,
+      "name": "清水清三郎商店",
+      "areaId": 24
+    },
+    {
+      "id": 874,
+      "name": "寒菊銘醸",
+      "areaId": 12
+    },
+    {
+      "id": 898,
+      "name": "赤武酒造",
+      "areaId": 3
+    },
+    {
+      "id": 1121,
+      "name": "南陽醸造",
+      "areaId": 11
+    },
+    {
+      "id": 1147,
+      "name": "",
+      "areaId": 0
+    },
+    {
+      "id": 1168,
+      "name": "せんきん",
+      "areaId": 9
+    },
+    {
+      "id": 1317,
+      "name": "ヌグネ",
+      "areaId": 0
+    }
+  ]
+}
