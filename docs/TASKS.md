@@ -106,7 +106,7 @@
 | 受け入れ条件 | FR-01（詳細が取得・表示できる）、FR-02（詳細でタグ一覧表示）、FR-03（全条件） |
 | 依存タスク | T03, T04（表示する実データ） |
 | ブランチ | `feature/T05-sake-detail` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜⑤完了。① `src/lib/db/queries/sakes.ts` に
 > `getSakeDetail`（公開）/`selectSakeDetail`（db 注入・テスト用）を追加し、
@@ -131,8 +131,36 @@
 | 主な作業内容 | ① `src/lib/db/queries/sakes.ts` に県別一覧クエリ追加（蔵元 JOIN、ページネーション 24 件/頁）② `src/app/prefectures/[code]/page.tsx`（`revalidate = 3600`）③ 都道府県選択 UI（リスト形式。`src/lib/constants/prefectures.ts` 参照）をホームまたは同セグメント `_components/` に配置 ④ 不正コードは `not-found` |
 | 受け入れ条件 | FR-07（選択 UI から一覧に到達） |
 | 依存タスク | T05（sake-card・クエリ基盤）。T07 と並行可 |
-| ブランチ | `feature/T06-prefectures` |
-| 状態 | 未着手 |
+| ブランチ | `feature/T06-prefecture-list` |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。① `src/lib/db/queries/sakes.ts` に
+> `selectSakesByPrefecture`（db 注入・テスト用）/`getSakesByPrefecture`（React.cache 公開）を追加し、
+> 銘柄×蔵元 INNER JOIN を `breweries.prefecture_code` で絞って `SakeSummary[]` を名前→id の安定順で返す。
+> 一覧カード用タグは `selectTagsBySakeIds` で銘柄 ID 配列から 1 クエリ一括取得してメモリで束ね、
+> 銘柄数によらず計 2 クエリに抑える（N+1 回避）。② `src/app/prefectures/[code]/page.tsx` は
+> RSC 直接クエリ・`revalidate=3600`・`generateMetadata` で「〇〇県の地酒」。JIS コード（01..47）以外は
+> `findPrefectureByCode` の undefined 判定で `notFound()` に落とし DB へ問い合わせない。0 件は空状態メッセージ。
+> ③ `src/app/prefectures/page.tsx` は `prefectures.ts` を単一情報源に `_lib/regions.ts`（地方 8 区分の純関数）で
+> グルーピングした 47 都道府県リンク一覧（DB 非依存・静的配信）。④ 一覧は共有 `SakeCard` の初の実利用
+> （非破壊で再利用。県名はカード内に出るが実害なく prop 追加はしない）。⑤ ヘッダーナビ「地酒を探す」＋
+> ホームの導線ボタンを追加。テストは PGlite（県別絞り込み・タグ一括束ね・空状態・安定順）＋ SSR 出力検証
+> （ページの notFound 分岐・空状態・メタデータ・選択 UI の全 47 リンク・地方グルーピング）で実施
+> （全 122 テストグリーン。lint / typecheck / format:check / build 済み）。
+> ブランチ名は指示に従い `feature/T06-prefecture-list`（TASKS 当初案 `feature/T06-prefectures` から変更）。
+>
+> レビュー対応（2026-07-04・4 ペルソナ Should 反映）: ①**ページネーション（24 件/頁）を実装**。
+> `PAGE_SIZE=24` 定数（DESIGN §6.1）を定義し、`selectSakesByPrefecture(db, code, page)` に
+> `limit/offset` と総件数 count クエリを追加、返り値を `{ sakes, total, page, pageSize }` に変更
+> （`getSakesByPrefecture` の React.cache も page をキーに含める）。タグ一括取得はそのページ分の
+> 銘柄 ID のみに渡すため計 3 クエリ（count + 一覧 + タグ）。ページは `_lib/pagination.ts` の純関数
+> `parsePageParam`（0・負・非数・小数は 1 に丸め）/`totalPageCount`（切り上げ・0 件でも 1）で処理し、
+> 総ページ数超過は最終ページへ `redirect`。UI に前へ/次へ・現在/総ページのページャ（1 頁に収まる県は非表示）、
+> 「N 件」は総件数を表示。②**`generateStaticParams` を追加**して 47 コードをビルド時プリレンダ対象化
+> （build で 5→52 静的生成。?page= の searchParams のため Route 判定上は ƒ だが 47 パスは事前生成＋ISR 併用。
+> 完全静的化はパスセグメント化する将来の最適化余地としてコメント記載）。追加テスト: PGlite で 30 件投入の
+> 2 頁分割・page=2 内容・範囲外・総件数、純関数のページ丸め、SSR でページャ表示/非表示・redirect・
+> 静的パラメータ（全 136 テストグリーン）。
 
 ### T07: 検索機能
 
