@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 
 import { loadEnvConfig } from "@next/env";
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import { closeDb, getDb } from "@/lib/db/client";
@@ -25,9 +25,13 @@ import { flavorToTagNames } from "./lib/sakenowa/flavor-to-tags";
  *   既にある場合は ON CONFLICT DO NOTHING で manual を優先する。
  * - スキップ規則（docs/SAKENOWA_API.md §3 の実測に基づく）:
  *   - areaId=0（その他）の蔵元とその銘柄（prefecture_code に写せない）
- *   - 空文字名の蔵元（プレースホルダ）とその銘柄
- *   - 同一 (name, prefecture_code) の重複蔵元は最初の 1 件に統合し、
- *     重複側の銘柄は統合先へ付け替える
+ *   - 空文字名の蔵元・銘柄（プレースホルダ）
+ *   - 同一 (name, prefecture_code) の重複蔵元は統合し、銘柄を付け替える。
+ *     統合先はスナップショット内の最小 sakenowa 蔵元 ID とし（順序非依存）、
+ *     DB に同一 (name, prefecture_code) の行が既にある場合はその行を優先する
+ *     （統合先 ID が API から消えても UNIQUE 違反にならない）
+ *   - DB の手作業銘柄等と同一 (brewery_id, name) になる銘柄はスキップして
+ *     件数をログ出力（セカンダリ UNIQUE 違反で全体を失敗させない）
  * - rankings（総合）から popularity_rank を反映する。今回のランキングに
  *   載っていない銘柄は NULL に戻す（月次スナップショットの洗い替え）。
  */
@@ -45,11 +49,16 @@ export type ImportSummary = {
     skippedOtherArea: number;
     skippedEmptyName: number;
     mergedDuplicateName: number;
+    /** 挿入せず DB の既存行（手作業由来・旧統合先）へ統合した組の数 */
+    mergedIntoExisting: number;
   };
   sakes: {
     upserted: number;
     skippedNoBrewery: number;
+    skippedEmptyName: number;
     skippedDuplicateName: number;
+    /** DB の既存行（手作業銘柄等）と (brewery_id, name) が衝突してスキップした数 */
+    skippedConflictWithExisting: number;
     withFlavorChart: number;
     withPopularityRank: number;
   };
@@ -79,15 +88,18 @@ export async function importSakenowaSnapshot(
       skippedOtherArea: 0,
       skippedEmptyName: 0,
       mergedDuplicateName: 0,
+      mergedIntoExisting: 0,
     };
-    // 重複 (name, prefecture_code) の統合先: さけのわ蔵元 ID → 統合先のさけのわ蔵元 ID
-    const canonicalBreweryId = new Map<number, number>();
-    const seenByNameAndPrefecture = new Map<string, number>();
-    const breweryRows: (typeof schema.breweries.$inferInsert)[] = [];
 
+    // まず (prefecture_code, name) でグループ化する（同名蔵元の統合単位）
+    type BreweryGroup = {
+      name: string;
+      prefectureCode: string;
+      sakenowaIds: number[];
+    };
+    const breweryGroups = new Map<string, BreweryGroup>();
     for (const brewery of snapshot.breweries.breweries) {
-      const name = brewery.name.trim();
-      if (name === "") {
+      if (brewery.name === "") {
         breweryStats.skippedEmptyName++;
         continue;
       }
@@ -96,15 +108,71 @@ export async function importSakenowaSnapshot(
         continue;
       }
       const prefectureCode = String(brewery.areaId).padStart(2, "0");
-      const key = `${prefectureCode}:${name}`;
-      const existing = seenByNameAndPrefecture.get(key);
-      if (existing !== undefined) {
-        canonicalBreweryId.set(brewery.id, existing);
+      const key = `${prefectureCode}:${brewery.name}`;
+      const group = breweryGroups.get(key);
+      if (group) {
+        group.sakenowaIds.push(brewery.id);
         breweryStats.mergedDuplicateName++;
+      } else {
+        breweryGroups.set(key, {
+          name: brewery.name,
+          prefectureCode,
+          sakenowaIds: [brewery.id],
+        });
+      }
+    }
+
+    // DB の既存 (name, prefecture_code) と突き合わせて統合先を決める。
+    // これをしないと、統合先だった sakenowa_brewery_id が API から消えたときや
+    // 手作業由来の同名蔵元があるときに、ON CONFLICT が発火せず
+    // UNIQUE (name, prefecture_code) 違反でインポート全体が恒久失敗する
+    const existingBreweries = await tx
+      .select({
+        id: schema.breweries.id,
+        sakenowaBreweryId: schema.breweries.sakenowaBreweryId,
+        name: schema.breweries.name,
+        prefectureCode: schema.breweries.prefectureCode,
+      })
+      .from(schema.breweries);
+    const existingBreweryByKey = new Map(
+      existingBreweries.map((row) => [
+        `${row.prefectureCode}:${row.name.trim()}`,
+        row,
+      ]),
+    );
+
+    // さけのわ蔵元 ID → 統合先のさけのわ蔵元 ID（挿入で解決する組）
+    const canonicalBreweryId = new Map<number, number>();
+    // さけのわ蔵元 ID → 既存行の uuid（挿入せず既存行へ統合する組）
+    const breweryUuidOverride = new Map<number, string>();
+    const breweryRows: (typeof schema.breweries.$inferInsert)[] = [];
+
+    for (const [key, group] of breweryGroups) {
+      const existing = existingBreweryByKey.get(key);
+      if (
+        existing !== undefined &&
+        (existing.sakenowaBreweryId === null ||
+          !group.sakenowaIds.includes(existing.sakenowaBreweryId))
+      ) {
+        // 既存行の sakenowa ID が今回のグループに無い（手作業由来 or 統合先 ID の
+        // 消失）。挿入すると UNIQUE 違反になるため、既存行へ挿入なしで統合する
+        for (const id of group.sakenowaIds) {
+          breweryUuidOverride.set(id, existing.id);
+        }
+        breweryStats.mergedIntoExisting++;
         continue;
       }
-      seenByNameAndPrefecture.set(key, brewery.id);
-      breweryRows.push({ sakenowaBreweryId: brewery.id, name, prefectureCode });
+      // 統合先: DB に既にある sakenowa ID を最優先し、なければ最小 ID（順序非依存）
+      const canonical =
+        existing?.sakenowaBreweryId ?? Math.min(...group.sakenowaIds);
+      for (const id of group.sakenowaIds) {
+        canonicalBreweryId.set(id, canonical);
+      }
+      breweryRows.push({
+        sakenowaBreweryId: canonical,
+        name: group.name,
+        prefectureCode: group.prefectureCode,
+      });
     }
 
     for (const rows of chunk(breweryRows, UPSERT_CHUNK_SIZE)) {
@@ -150,17 +218,43 @@ export async function importSakenowaSnapshot(
     const sakeStats = {
       upserted: 0,
       skippedNoBrewery: 0,
+      skippedEmptyName: 0,
       skippedDuplicateName: 0,
+      skippedConflictWithExisting: 0,
       withFlavorChart: 0,
       withPopularityRank: 0,
     };
+
+    // DB の既存 (brewery_id, name) と突き合わせるための索引。
+    // 手作業銘柄（sakenowa_brand_id IS NULL）等と同名の銘柄が API に現れた場合、
+    // 挿入すると UNIQUE (brewery_id, name) 違反で全体が失敗するためスキップする
+    const existingSakes = await tx
+      .select({
+        breweryId: schema.sakes.breweryId,
+        name: schema.sakes.name,
+        sakenowaBrandId: schema.sakes.sakenowaBrandId,
+      })
+      .from(schema.sakes);
+    const existingBrandIdBySakeKey = new Map(
+      existingSakes.map((row) => [
+        `${row.breweryId}:${row.name.trim()}`,
+        row.sakenowaBrandId,
+      ]),
+    );
+
     const seenByBreweryAndName = new Set<string>();
     const sakeRows: (typeof schema.sakes.$inferInsert)[] = [];
 
     for (const brand of snapshot.brands.brands) {
-      const sakenowaBreweryId =
-        canonicalBreweryId.get(brand.breweryId) ?? brand.breweryId;
-      const breweryId = breweryUuidBySakenowaId.get(sakenowaBreweryId);
+      if (brand.name === "") {
+        sakeStats.skippedEmptyName++;
+        continue;
+      }
+      const breweryId =
+        breweryUuidOverride.get(brand.breweryId) ??
+        breweryUuidBySakenowaId.get(
+          canonicalBreweryId.get(brand.breweryId) ?? brand.breweryId,
+        );
       if (breweryId === undefined) {
         // スキップした蔵元（areaId=0・空文字名）に属する銘柄
         sakeStats.skippedNoBrewery++;
@@ -170,6 +264,13 @@ export async function importSakenowaSnapshot(
       if (seenByBreweryAndName.has(key)) {
         // UNIQUE (brewery_id, name) に抵触する重複銘柄（蔵元統合で発生し得る）
         sakeStats.skippedDuplicateName++;
+        continue;
+      }
+      const existingBrandId = existingBrandIdBySakeKey.get(key);
+      if (existingBrandId !== undefined && existingBrandId !== brand.id) {
+        // 既存行（手作業銘柄 or 別の sakenowa ID）と同一 (brewery_id, name)。
+        // ON CONFLICT (sakenowa_brand_id) では防げないためスキップする
+        sakeStats.skippedConflictWithExisting++;
         continue;
       }
       seenByBreweryAndName.add(key);
@@ -192,6 +293,15 @@ export async function importSakenowaSnapshot(
         flavorLight: chart?.f6 ?? null,
       });
     }
+
+    // popularity_rank の洗い替え: スナップショットに含まれない銘柄に前回の
+    // ランクが残らないよう、さけのわ由来の全銘柄を一度 NULL に戻してから反映する
+    await tx
+      .update(schema.sakes)
+      .set({ popularityRank: null })
+      .where(
+        sql`${schema.sakes.sakenowaBrandId} is not null and ${schema.sakes.popularityRank} is not null`,
+      );
 
     for (const rows of chunk(sakeRows, UPSERT_CHUNK_SIZE)) {
       await tx
@@ -232,6 +342,19 @@ export async function importSakenowaSnapshot(
       }
     }
 
+    // 今回 upsert した銘柄の uuid（タグ入れ替えの対象範囲）。
+    // DB には過去のインポート由来でスナップショット外の銘柄も存在し得るため、
+    // sakeUuidByBrandId 全体ではなく今回の sakeRows に限定する
+    const importedSakeIds: string[] = [];
+    for (const row of sakeRows) {
+      const sakeId =
+        row.sakenowaBrandId != null
+          ? sakeUuidByBrandId.get(row.sakenowaBrandId)
+          : undefined;
+      if (sakeId !== undefined) importedSakeIds.push(sakeId);
+    }
+    const importedSakeIdSet = new Set(importedSakeIds);
+
     // ------------------------------------------------------------------
     // 3) tags: 実際に付与されるタグ名だけを upsert（未使用語彙は入れない）
     // ------------------------------------------------------------------
@@ -250,7 +373,8 @@ export async function importSakenowaSnapshot(
 
     for (const entry of snapshot.brandFlavorTags.flavorTags) {
       const sakeId = sakeUuidByBrandId.get(entry.brandId);
-      if (sakeId === undefined) continue; // スキップした銘柄
+      // スキップした銘柄・今回のインポート対象外の銘柄はタグを再計算しない
+      if (sakeId === undefined || !importedSakeIdSet.has(sakeId)) continue;
       for (const tagId of entry.tagIds) {
         const tagName = tagNameById.get(tagId);
         if (tagName === undefined) {
@@ -263,7 +387,7 @@ export async function importSakenowaSnapshot(
     }
     for (const chart of snapshot.flavorCharts.flavorCharts) {
       const sakeId = sakeUuidByBrandId.get(chart.brandId);
-      if (sakeId === undefined) continue;
+      if (sakeId === undefined || !importedSakeIdSet.has(sakeId)) continue;
       for (const tagName of flavorToTagNames(chart)) {
         addTag(sakeId, tagName);
       }
@@ -289,11 +413,20 @@ export async function importSakenowaSnapshot(
     const tagIdByName = new Map(tagRows.map((tag) => [tag.name, tag.id]));
 
     // ------------------------------------------------------------------
-    // 4) sake_tags: source='sakenowa' のみ入れ替え（manual は保全）
+    // 4) sake_tags: source='sakenowa' のみ入れ替え（manual は保全）。
+    //    入れ替え対象は「今回タグを再計算した銘柄」に限定する。全削除にすると
+    //    スナップショットから消えた銘柄のタグを永久に失うため
     // ------------------------------------------------------------------
-    await tx
-      .delete(schema.sakeTags)
-      .where(sql`${schema.sakeTags.source} = 'sakenowa'`);
+    for (const ids of chunk(importedSakeIds, UPSERT_CHUNK_SIZE)) {
+      await tx
+        .delete(schema.sakeTags)
+        .where(
+          and(
+            eq(schema.sakeTags.source, "sakenowa"),
+            inArray(schema.sakeTags.sakeId, ids),
+          ),
+        );
+    }
 
     const sakeTagRows: (typeof schema.sakeTags.$inferInsert)[] = [];
     for (const [sakeId, names] of tagNamesBySakeId) {
@@ -323,10 +456,10 @@ function logSummary(summary: ImportSummary): void {
     `さけのわデータのインポートが完了しました（ランキング年月: ${summary.yearMonth}）`,
   );
   console.log(
-    `  蔵元: upsert ${summary.breweries.upserted} 件 / スキップ: その他地域(areaId=0等) ${summary.breweries.skippedOtherArea} 件・空文字名 ${summary.breweries.skippedEmptyName} 件 / 同名統合 ${summary.breweries.mergedDuplicateName} 件`,
+    `  蔵元: upsert ${summary.breweries.upserted} 件 / スキップ: その他地域(areaId=0等) ${summary.breweries.skippedOtherArea} 件・空文字名 ${summary.breweries.skippedEmptyName} 件 / 同名統合 ${summary.breweries.mergedDuplicateName} 件・既存行へ統合 ${summary.breweries.mergedIntoExisting} 組`,
   );
   console.log(
-    `  銘柄: upsert ${summary.sakes.upserted} 件（フレーバーあり ${summary.sakes.withFlavorChart} 件・ランキング反映 ${summary.sakes.withPopularityRank} 件） / スキップ: 蔵元なし ${summary.sakes.skippedNoBrewery} 件・重複名 ${summary.sakes.skippedDuplicateName} 件`,
+    `  銘柄: upsert ${summary.sakes.upserted} 件（フレーバーあり ${summary.sakes.withFlavorChart} 件・ランキング反映 ${summary.sakes.withPopularityRank} 件） / スキップ: 蔵元なし ${summary.sakes.skippedNoBrewery} 件・空文字名 ${summary.sakes.skippedEmptyName} 件・重複名 ${summary.sakes.skippedDuplicateName} 件・既存行と衝突 ${summary.sakes.skippedConflictWithExisting} 件`,
   );
   console.log(
     `  タグ: ${summary.tags.upserted} 種 / タグ付け ${summary.sakeTags.replaced} 件（source='sakenowa' を入れ替え。manual は保全）`,
@@ -356,10 +489,15 @@ const isDirectRun =
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectRun) {
-  main()
-    .catch((error: unknown) => {
+  void (async () => {
+    try {
+      await main();
+    } catch (error) {
       console.error("インポートに失敗しました:", error);
       process.exitCode = 1;
-    })
-    .finally(() => closeDb()); // 接続プールを必ず閉じる（プロセス残留防止）
+    } finally {
+      // 接続プールを必ず閉じる（プロセス残留防止）
+      await closeDb();
+    }
+  })();
 }

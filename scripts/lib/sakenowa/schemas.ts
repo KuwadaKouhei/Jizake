@@ -7,27 +7,36 @@ import { z } from "zod";
  * 検証はインポートが依存するフィールドのみに絞り、未知のフィールドは
  * 素通しする（API 側の追加変更で壊れないように。仕様変更の検知は
  * 「依存フィールドが消えた／型が変わった」時点でパースエラーとして現れる）。
+ *
+ * 文字列フィールドは前後空白を trim し、異常データの流入に備えて
+ * 長さ上限を設ける（外部入力を DB へ渡す境界での防御）。
  */
+
+const MAX_NAME_LENGTH = 200;
+
+// 名前系フィールドの共通形（trim 済み・長さ上限つき）。
+// 空文字の扱い（スキップ or 拒否）はデータ実態に応じて各スキーマで決める
+const trimmedName = z.string().trim().max(MAX_NAME_LENGTH);
 
 // /areas — id 1〜47 は JIS 都道府県コードと一致。id 0「その他」が存在する
 export const areasResponseSchema = z.object({
   areas: z.array(
     z.object({
       id: z.number().int().nonnegative(),
-      name: z.string().min(1),
+      name: trimmedName.pipe(z.string().min(1)),
     }),
   ),
 });
 export type AreasResponse = z.infer<typeof areasResponseSchema>;
 
 // /breweries — areaId → breweries.prefecture_code の供給源。
-// name は空文字を許容する（実データに県別プレースホルダとみられる空文字名の
-// 蔵元が存在する。docs/SAKENOWA_API.md §3。スキップ判断はインポート側で行う）
+// name は trim 後の空文字を許容する（実データに県別プレースホルダとみられる
+// 空文字名の蔵元が存在する。docs/SAKENOWA_API.md §3。スキップ判断はインポート側で行う）
 export const breweriesResponseSchema = z.object({
   breweries: z.array(
     z.object({
       id: z.number().int().positive(),
-      name: z.string(),
+      name: trimmedName,
       areaId: z.number().int().nonnegative(),
     }),
   ),
@@ -35,12 +44,14 @@ export const breweriesResponseSchema = z.object({
 export type BreweriesResponse = z.infer<typeof breweriesResponseSchema>;
 export type SakenowaBrewery = BreweriesResponse["breweries"][number];
 
-// /brands — id が sakes.sakenowa_brand_id（冪等 upsert キー）
+// /brands — id が sakes.sakenowa_brand_id（冪等 upsert キー）。
+// name は蔵元と同様、trim 後の空文字を許容してインポート側でスキップする
+// （1 件の異常データでインポート全体を失敗させない）
 export const brandsResponseSchema = z.object({
   brands: z.array(
     z.object({
       id: z.number().int().positive(),
-      name: z.string().min(1),
+      name: trimmedName,
       breweryId: z.number().int().positive(),
     }),
   ),
@@ -67,12 +78,12 @@ export const flavorChartsResponseSchema = z.object({
 export type FlavorChartsResponse = z.infer<typeof flavorChartsResponseSchema>;
 export type SakenowaFlavorChart = FlavorChartsResponse["flavorCharts"][number];
 
-// /flavor-tags — 味検索タグの語彙マスタ（242 種）
+// /flavor-tags — 味検索タグの語彙マスタ（141 種・2026-07-04 実測）
 export const flavorTagsResponseSchema = z.object({
   tags: z.array(
     z.object({
       id: z.number().int().positive(),
-      tag: z.string().min(1),
+      tag: trimmedName.pipe(z.string().min(1)),
     }),
   ),
 });
