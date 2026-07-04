@@ -630,7 +630,7 @@
 | 受け入れ条件 | FR-08（安定運用）、非機能（コスト・可用性） |
 | 依存タスク | T14, T08 |
 | ブランチ | `feature/T15-chat-guards` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜④完了。T14 の route.ts を壊さず（捏造防止フローは維持）拡張した。
 > 作成/変更ファイルと設計判断:
@@ -720,7 +720,57 @@
 | 受け入れ条件 | FR-04 / FR-06 / FR-08 の導線の回帰保証（横断） |
 | 依存タスク | T07, T08, T14 |
 | ブランチ | `feature/T16-e2e` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-05）: ①〜⑤完了。作成/変更ファイルと設計判断:
+> - **実データ/実キー無し環境での各画面の実測（build&start で確認）**: DB/キーが無い状態で
+>   `npm run build && npm run start` し、各画面の HTTP ステータスを実測して skip 方針を決めた。
+>   200（DB 非依存・安定）= `/prefectures`（静的・県選択 UI）・`/login`・`/signup`
+>   （`getCurrentUser` は env 未設定時 null 安全）・`/chat`（LLM 呼び出しは送信時のみ）。
+>   307（proxy ガードが DB 不要で効く）= 未ログイン `/history` → `/login?next=%2Fhistory`。
+>   500（DB 接続要求）= `/`（recommend）・`/search`・`/sake/[id]`・`/prefectures/[code]`。
+>   → 500 になる画面のフルフローは条件付きスキップ、200/307 の画面を安定動線として常に検証する。
+> - **3 導線 spec（`e2e/*.spec.ts`）を「安定動線」と「フルフロー」の 2 describe に分割**:
+>   フルフローは各 spec 冒頭 `test.skip(!process.env.X)` で必要な環境変数が無ければ自動スキップ。
+>   判定は `e2e/_support/env.ts`（`hasDatabase`=DATABASE_URL / `hasSupabaseAuth`=NEXT_PUBLIC_
+>   SUPABASE_URL+ANON_KEY / `hasAiGateway`=AI_GATEWAY_API_KEY）に集約。①検索: 安定=/prefectures の
+>   県選択 UI（47 リンク・東京都 href=/prefectures/13）／フルフロー(要 DB)=/search 実行→結果カード→
+>   /sake/[uuid] 遷移・/prefectures/[code] 一覧→詳細（0 件は空状態）。②ログイン: 安定=/login・/signup
+>   フォーム要素・未ログイン /history の /login 誘導／フルフロー(要 Supabase)=サインアップ→ログイン→
+>   /history 到達（Confirm email 設定依存のため「到達」または「/login 誘導」の両立を許容）。③チャット:
+>   安定=/chat 入力 UI（「どんなお酒を求めていますか？」・入力欄・送信ボタン）＋ **`page.route("**/api/chat")`
+>   で AI SDK v6 UIMessageStream(SSE) をモックした 1 往復**（送信→応答テキスト→検証済み提案カード
+>   /sake/[id] リンク。サーバの LLM・retriever・DB を一切叩かず UI 配線を黒箱検証＝TASKS「LLM は
+>   モックエンドポイント」を DB/キー無しでも安定実行）／フルフロー(要 AI キー)=実 LLM 1 往復。
+> - **待機は role/text ベース**（`getByRole`/`getByText`/`getByLabel`・`toHaveURL`）で固定し、
+>   固定 sleep を使わずフレーキーを避けた（2 回連続実行で 6 passed/4 skipped 安定を確認）。
+> - **② playwright.config.ts（T05 申し送り: dev → build&start へ切替）**: webServer を
+>   `npm run build && npm run start` にして本番挙動でビルド済みアプリを起動して回す。**readiness
+>   判定 URL を `/` でなく `/prefectures` に向ける**のが要点: DB/キー無しでは `/` が 500 になり
+>   Playwright が「未 ready」と誤判定してタイムアウトするため、DB 非依存で必ず 200 を返す静的
+>   ページを起動の目印にした（実データ有無に関わらず起動判定できる）。`PLAYWRIGHT_BASE_URL` 指定時は
+>   webServer を無効化し外部の起動済みサーバを指す（ローカル反復を速くする）。CI 用に workers/reporter/
+>   retries を分岐。baseURL・PORT は環境変数で上書き可能。
+> - **③ `package.json` に `test:e2e`（playwright test）を追加**。vitest は `e2e/**` を exclude 済みで
+>   ユニットと混ざらない（`vitest.config.ts`）。
+> - **④ CI（`.github/workflows/ci.yml` に `e2e` ジョブを追加。別ワークフローにせずジョブ分離）**:
+>   既存 `checks`（lint/typecheck/unit/build）と**並列に走る独立ジョブ**にして unit の速度を保つ
+>   （build&start と Playwright ブラウザ導入は e2e ジョブだけが負う）。`npx playwright install
+>   --with-deps chromium`（1 ブラウザのみ）＋ `npm run test:e2e`。フルフローの環境変数は Secrets
+>   （DATABASE_URL / SUPABASE_URL / SUPABASE_ANON_KEY / AI_GATEWAY_API_KEY）を env にマップし、
+>   **未登録なら空文字 → test.skip で安全にグリーン**、登録があればフルフローも走る。失敗時は
+>   `playwright-report` を artifact に残す。`timeout-minutes: 15`。
+> - **⑤ フルフロー手順を `e2e/README.md` に記録**（実キー投入後の db:migrate→import:sakenowa→seed→
+>   embed→test:e2e の順、Confirm email の注意、各ページの実測ステータス表）。
+> - **ドキュメント整合**: DIRECTORY_STRUCTURE §2 ツリー・§3 責務表に `e2e/README.md`・`e2e/_support/`
+>   （spec 共有ヘルパ）を反映。TEST_PHILOSOPHY/DESIGN の E2E 記述（3 導線・LLM モックエンドポイント）は
+>   実装と整合済みのため変更なし。
+> - **残作業（実データ/実キー投入後）**: 各 spec のフルフロー（検索→一覧→詳細・ログイン往復・実 LLM
+>   チャット）の実疎通。Secrets を登録すれば CI でも自動で外れる。ログイン往復は Supabase の
+>   Confirm email 設定に依存（T08 残作業）。
+> - テスト結果: ユニット 423 全パス（Vitest。T15 から増減なし。E2E は Vitest 対象外）＋ E2E 6 passed /
+>   4 skipped（実データ/実キー無し。安定動線が通りフルフローは適切に skip）。lint 0 警告 / typecheck /
+>   format:check / build グリーン。build&start webServer 経由でも同結果を確認。
 
 ---
 
