@@ -37,11 +37,22 @@ describe("SiteHeader", () => {
     expect(prefectures.getAttribute("href")).toBe("/prefectures");
   });
 
+  it("実装済みの検索（/search）への導線がある（T07）", () => {
+    render(<SiteHeader />);
+
+    const nav = screen.getByRole("navigation", {
+      name: "メインナビゲーション",
+    });
+    const search = within(nav).getByRole("link", { name: "検索" });
+
+    expect(search.getAttribute("href")).toBe("/search");
+  });
+
   it("未実装機能への導線を出さない（TASKS 運用ルール: 許可リストのみ）", () => {
     render(<SiteHeader />);
 
-    // 実装済みで導線を出してよいのはホームと都道府県別一覧のみ（T06 時点）。
-    const allowed = new Set(["/", "/prefectures"]);
+    // 実装済みで導線を出してよいのはホーム・検索・都道府県別一覧のみ（T07 時点）。
+    const allowed = new Set(["/", "/search", "/prefectures"]);
     const hrefs = screen
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSearchCriteria, isEmptyCriteria } from "./build-search-query";
+import {
+  buildSearchCriteria,
+  isEmptyCriteria,
+  toSearchQueryString,
+} from "./build-search-query";
 
 describe("buildSearchCriteria", () => {
   it("空の searchParams は全条件なし・page=1 に正規化する（全件表示へ）", () => {
@@ -86,18 +90,37 @@ describe("buildSearchCriteria", () => {
 
 describe("isEmptyCriteria", () => {
   it("page 以外の条件が一つでもあれば空でない", () => {
-    expect(
-      isEmptyCriteria({ q: "獺祭", tagNames: [], page: 1 }),
-    ).toBe(false);
+    expect(isEmptyCriteria({ q: "獺祭", tagNames: [], page: 1 })).toBe(false);
     expect(
       isEmptyCriteria({ prefectureCode: "35", tagNames: [], page: 1 }),
     ).toBe(false);
-    expect(
-      isEmptyCriteria({ tagNames: ["辛口"], page: 1 }),
-    ).toBe(false);
+    expect(isEmptyCriteria({ tagNames: ["辛口"], page: 1 })).toBe(false);
   });
 
   it("q・prefecture・tags がすべて空なら（page が 2 でも）空条件とみなす", () => {
     expect(isEmptyCriteria({ tagNames: [], page: 2 })).toBe(true);
+  });
+});
+
+describe("toSearchQueryString", () => {
+  it("空の条件は空文字を返す（page=1 は省く）", () => {
+    expect(toSearchQueryString({ tagNames: [], page: 1 })).toBe("");
+  });
+
+  it("q・prefecture・複数 tags を保持し、page 引数で上書きする", () => {
+    const qs = toSearchQueryString(
+      { q: "獺祭", prefectureCode: "35", tagNames: ["辛口", "淡麗"], page: 1 },
+      2,
+    );
+    // クエリ順は URLSearchParams の挿入順（q → prefecture → tags → page）
+    expect(qs).toBe(
+      "?q=%E7%8D%BA%E7%A5%AD&prefecture=35&tags=%E8%BE%9B%E5%8F%A3&tags=%E6%B7%A1%E9%BA%97&page=2",
+    );
+  });
+
+  it("page 引数を省くと criteria.page を使う（1 は省略）", () => {
+    expect(toSearchQueryString({ q: "久保田", tagNames: [], page: 1 })).toBe(
+      "?q=%E4%B9%85%E4%BF%9D%E7%94%B0",
+    );
   });
 });

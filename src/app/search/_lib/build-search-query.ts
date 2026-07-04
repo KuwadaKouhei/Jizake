@@ -142,3 +142,32 @@ export function isEmptyCriteria(criteria: SearchCriteria): boolean {
     criteria.tagNames.length === 0
   );
 }
+
+/**
+ * 検索条件を `/search` のクエリ文字列に直す（純関数）。
+ *
+ * ページャのリンクで現在の検索条件（q・prefecture・tags）を保ったまま page だけ
+ * 差し替えるために使う。page 引数を渡すとその値で上書きする（未指定なら criteria.page）。
+ * 空の条件はキーごと省き、共有可能で最小の URL にする。
+ */
+export function toSearchQueryString(
+  criteria: SearchCriteria,
+  page?: number,
+): string {
+  const params = new URLSearchParams();
+  if (criteria.q !== undefined) {
+    params.set("q", criteria.q);
+  }
+  if (criteria.prefectureCode !== undefined) {
+    params.set("prefecture", criteria.prefectureCode);
+  }
+  for (const tagName of criteria.tagNames) {
+    params.append("tags", tagName);
+  }
+  const targetPage = page ?? criteria.page;
+  if (targetPage > 1) {
+    params.set("page", String(targetPage));
+  }
+  const query = params.toString();
+  return query.length > 0 ? `?${query}` : "";
+}

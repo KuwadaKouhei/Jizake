@@ -1,9 +1,10 @@
 import Link from "next/link";
 
 // ナビ骨格。実装済み機能のみ導線を出す（TASKS 運用ルール）。
-// 未実装機能（検索 T07・認証 T08 等）は各タスクで項目を追加する。
+// 未実装機能（認証 T08 等）は各タスクで項目を追加する。
 const NAV_ITEMS: readonly { href: string; label: string }[] = [
   { href: "/", label: "ホーム" },
+  { href: "/search", label: "検索" },
   { href: "/prefectures", label: "地酒を探す" },
 ];
 
