@@ -376,6 +376,39 @@ export type SearchSakesPage = {
   pageSize: number;
 };
 
+/**
+ * 味タグの AND 絞り込み条件（相関サブクエリ EXISTS の配列）を組み立てる共通ヘルパ。
+ *
+ * タグ 1 件ごとに「その銘柄が当該タグ名を持つ」EXISTS を作る。呼び出し側が複数タグを
+ * AND で連結すると「辛口かつ淡麗」の AND 絞り込みになる（DESIGN §2.2）。別名（alias）は
+ * `${aliasPrefix}_st_${i}` / `${aliasPrefix}_tg_${i}` で、同一クエリ内で複数タグでも各 EXISTS が
+ * 独立した相関サブクエリになるよう衝突を避ける。
+ *
+ * searchSakes（検索）と retriever（RAG ハイブリッド検索）がともに同型のタグ AND を必要とし
+ * Rule of Three の 3 箇所目に達したため、ここへ切り出して両者で共有する
+ * （aliasPrefix のみ引数で分ける。DIRECTORY_STRUCTURE §5.3 の共有領域昇格）。
+ * 推薦（recommend）の EXISTS は IN の OR で意味が異なるため対象外。
+ *
+ * db は相関サブクエリの select を組み立てるために受ける（本番/PGlite いずれも可）。
+ */
+export function buildTagAndFilters(
+  db: Db,
+  tagNames: readonly string[],
+  aliasPrefix: string,
+): SQL[] {
+  return tagNames.map((tagName, i) => {
+    const st = alias(sakeTags, `${aliasPrefix}_st_${i}`);
+    const tg = alias(tags, `${aliasPrefix}_tg_${i}`);
+    return exists(
+      db
+        .select({ one: sql`1` })
+        .from(st)
+        .innerJoin(tg, eq(tg.id, st.tagId))
+        .where(and(eq(st.sakeId, sakes.id), eq(tg.name, tagName))),
+    );
+  });
+}
+
 // LIKE のワイルドカード（% _）とエスケープ文字（\）をリテラル一致に無害化する。
 // drizzle の ilike はパターンをパラメータバインドするため注入は起きないが、
 // ユーザーが打った "%" を「任意文字列」として解釈させないための正規化
@@ -423,21 +456,8 @@ export async function searchSakes(
     conditions.push(eq(breweries.prefectureCode, query.prefectureCode));
   }
 
-  // 味タグ AND: タグ 1 件ごとに「その銘柄が当該タグ名を持つ」EXISTS を作り AND で連ねる。
-  // 別名（alias）を使い、複数タグでも各 EXISTS が独立した相関サブクエリになるようにする。
-  for (const [i, tagName] of query.tagNames.entries()) {
-    const st = alias(sakeTags, `st_${i}`);
-    const tg = alias(tags, `tg_${i}`);
-    conditions.push(
-      exists(
-        db
-          .select({ one: sql`1` })
-          .from(st)
-          .innerJoin(tg, eq(tg.id, st.tagId))
-          .where(and(eq(st.sakeId, sakes.id), eq(tg.name, tagName))),
-      ),
-    );
-  }
+  // 味タグ AND: 共通ヘルパで各タグの EXISTS を作り AND で連ねる（retriever と挙動を統一）。
+  conditions.push(...buildTagAndFilters(db, query.tagNames, "st"));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
