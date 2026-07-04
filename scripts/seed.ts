@@ -26,6 +26,7 @@ import { parseSeedSakes, type SeedSake } from "./lib/seed/schema";
  *   - sakes: (brewery_id, name) が一致する既存 さけのわ銘柄 には手作業カラム
  *     （reading / description / official_url / amazon_url / price_range）を付与するが、
  *     さけのわ由来カラム（sakenowa_brand_id / popularity_rank / flavor_* 等）は上書きしない。
+ *     rakuten_url は現状シードの入力対象外（set に含めず、既存値があれば保全する）。
  *   - sake_tags: source='manual' のみを扱い、source='sakenowa' の行には触れない。
  *
  * - name は信頼できない外部入力として扱わないが（自作データ）、境界スキーマ
@@ -201,9 +202,14 @@ export async function seedSakes(
         .onConflictDoNothing({ target: schema.tags.name });
     }
 
+    // 種別タグの解決は category='type' に限定する。tags.name は UNIQUE（DB-10：
+    // カテゴリ跨ぎの同名タグを許さない）ため、種別語がさけのわ味タグと同名だと
+    // 上の onConflictDoNothing で種別タグが入らず、名前だけ一致する味タグ ID を
+    // 黙って流用してしまう。それを避けるため type のみで解決し、解決不能なら例外にする。
     const tagRows = await tx
       .select({ id: schema.tags.id, name: schema.tags.name })
-      .from(schema.tags);
+      .from(schema.tags)
+      .where(eq(schema.tags.category, "type"));
     const tagIdByName = new Map(tagRows.map((tag) => [tag.name, tag.id]));
 
     // ------------------------------------------------------------------
@@ -226,7 +232,13 @@ export async function seedSakes(
     for (const [sakeId, names] of typeTagNamesBySakeId) {
       for (const name of names) {
         const tagId = tagIdByName.get(name);
-        if (tagId === undefined) continue; // usedTagNames 由来のため通常発生しない
+        if (tagId === undefined) {
+          // category='type' で解決できない＝同名の別カテゴリタグ（さけのわ味タグ）が
+          // UNIQUE(name) を占有している。味タグへの誤紐付けを避けるため停止する。
+          throw new Error(
+            `種別タグ「${name}」を category='type' で解決できません（同名の別カテゴリタグと衝突している可能性）`,
+          );
+        }
         sakeTagRows.push({ sakeId, tagId, source: "manual" });
       }
     }

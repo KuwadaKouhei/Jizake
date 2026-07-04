@@ -100,6 +100,29 @@ describe("seed-data/sakes.ts の妥当性", () => {
     ];
     expect(() => seedSakesSchema.parse(invalid)).toThrow();
   });
+
+  it("危険なスキームや http の URL はスキーマ検証で弾かれる（負のケース）", () => {
+    const base = {
+      name: "検証用",
+      brewery: "検証蔵",
+      prefectureCode: "13",
+      reading: "けんしょう",
+      description: "説明",
+      typeTags: ["純米"],
+    };
+    for (const officialUrl of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "file:///etc/passwd",
+      "http://example.com", // https 以外は不可
+    ]) {
+      expect(() => seedSakesSchema.parse([{ ...base, officialUrl }])).toThrow();
+    }
+    // https は許可される
+    expect(() =>
+      seedSakesSchema.parse([{ ...base, officialUrl: "https://example.com" }]),
+    ).not.toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -371,5 +394,29 @@ describe("さけのわ由来データとの共存", () => {
         sql`${schema.sakeTags.sakeId} = ${sakenowaSake.id} and ${schema.sakeTags.source} = 'manual'`,
       );
     expect(manualTagRows.map((r) => r.name)).toEqual(["純米吟醸"]);
+  });
+
+  it("種別語と同名の味タグ（別カテゴリ）が既存だと、味タグへ誤紐付けせず停止する", async () => {
+    // さけのわ由来の味タグとして、種別語と同名の「衝突検証味タグ」を先に占有させる
+    // （seed-data には存在しない語を使う）。tags.name は UNIQUE（DB-10）なので、
+    // シードはこれを種別タグとして入れられない。
+    const collidingName = "衝突検証味タグ";
+    await orm
+      .insert(schema.tags)
+      .values({ name: collidingName, category: "taste" });
+
+    const seeds = parseSeedSakes([
+      {
+        name: "カテゴリ衝突検証銘柄",
+        brewery: "カテゴリ衝突酒造",
+        prefectureCode: "13",
+        reading: "かてごりしょうとつけんしょうめいがら",
+        description: "種別語が既存の味タグと同名のケースを検証する自作説明文。",
+        typeTags: [collidingName],
+      },
+    ]);
+
+    // 味タグ ID を種別として黙って流用せず、明示的に停止する
+    await expect(seedSakes(orm, seeds)).rejects.toThrow(/衝突検証味タグ/);
   });
 });

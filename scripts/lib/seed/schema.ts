@@ -30,6 +30,11 @@ const MAX_DESCRIPTION_LENGTH = 2_000;
 
 const trimmedNonEmpty = (max: number) => z.string().trim().min(1).max(max);
 
+// 外部リンクは https のみ許可する。z.url() 単体は javascript:/data:/file: 等の
+// 危険スキームを素通しするため、プロトコルを明示的に絞る（後続タスクでの
+// <a href> 無検証描画による格納型 XSS を境界で防ぐ）。
+const httpsUrl = z.url({ protocol: /^https$/ });
+
 // 種別タグ（category='type'）。純米/純米吟醸/大吟醸 等
 const typeTagName = trimmedNonEmpty(MAX_NAME_LENGTH);
 
@@ -65,10 +70,10 @@ export const seedSakeSchema = z.object({
       },
     )
     .optional(),
-  // 公式紹介ページ URL。任意。http(s) のみ許可
-  officialUrl: z.url().optional(),
-  // Amazon 購入リンク。任意（無い場合は詳細ページ側で検索 URL を生成する設計）
-  amazonUrl: z.url().optional(),
+  // 公式紹介ページ URL。任意。https のみ許可
+  officialUrl: httpsUrl.optional(),
+  // Amazon 購入リンク。任意（無い場合は詳細ページ側で検索 URL を生成する設計）。https のみ許可
+  amazonUrl: httpsUrl.optional(),
 });
 
 export type SeedSake = z.infer<typeof seedSakeSchema>;
