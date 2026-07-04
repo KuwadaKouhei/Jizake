@@ -5,6 +5,7 @@ import { AuthForm } from "@/components/auth-form";
 import { signIn } from "@/lib/auth/actions";
 import { resolveAfterLogin, sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { getCurrentUser } from "@/lib/auth/server";
+import { PASSWORD_MIN_LENGTH } from "@/lib/auth/validation";
 
 export const metadata: Metadata = {
   title: "ログイン",
@@ -37,6 +38,8 @@ export default async function LoginPage({ searchParams }: PageProps) {
         action={signIn}
         submitLabel="ログイン"
         next={next ?? undefined}
+        passwordAutoComplete="current-password"
+        passwordMinLength={PASSWORD_MIN_LENGTH}
         altPrompt={{
           text: "アカウントをお持ちでない方は",
           linkLabel: "新規登録",

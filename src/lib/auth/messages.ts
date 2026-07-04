@@ -26,3 +26,12 @@ export function signUpErrorMessage(raw: string): string {
   }
   return "登録に失敗しました。入力内容をご確認ください。";
 }
+
+/**
+ * サインアップ成功だがメール確認待ち（セッション未発行）のときの案内。
+ * Confirm email が ON の Supabase 設定では signUp 直後はログインされないため、
+ * リダイレクトせずこの文言を表示する（REVIEW T08 CODE S-2）。
+ */
+export function confirmationSentMessage(): string {
+  return "確認メールを送信しました。メール内のリンクから登録を完了してください。";
+}

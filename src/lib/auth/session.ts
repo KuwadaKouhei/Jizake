@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getSupabasePublicConfig } from "./env";
-import { buildLoginRedirect, isProtectedPath } from "./redirect";
+import { isProtectedPath, sanitizeRedirectPath } from "./redirect";
 
 /**
  * middleware 用のセッション更新（@supabase/ssr 標準パターン）。
@@ -63,10 +63,13 @@ export async function updateSession(
 
 /** 現在のパスを next に保持して /login へリダイレクトするレスポンスを作る。 */
 function redirectToLogin(request: NextRequest): NextResponse {
+  // 文字列を分解せず URL/searchParams でエンコードを担保する（REVIEW T08 CODE C-1）。
   const url = request.nextUrl.clone();
-  const destination = buildLoginRedirect(request.nextUrl.pathname);
-  const [pathname, search] = destination.split("?");
-  url.pathname = pathname;
-  url.search = search ? `?${search}` : "";
+  url.pathname = "/login";
+  url.search = "";
+  const safeNext = sanitizeRedirectPath(request.nextUrl.pathname);
+  if (safeNext) {
+    url.searchParams.set("next", safeNext);
+  }
   return NextResponse.redirect(url);
 }

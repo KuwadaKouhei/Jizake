@@ -16,10 +16,13 @@ export const DEFAULT_AFTER_LOGIN = "/";
  *
  * 完全一致または `/history/...` のような配下も保護する。`/historyx` のような
  * 別ルートを誤って保護しないよう、境界（次が `/` か終端）で判定する。
+ * 保護判定は「安全側に広く倒す」ため小文字化して比較する（`/History` 等が
+ * 同一ページに解決される構成でも middleware をすり抜けさせない。REVIEW T08 SEC S-1）。
  */
 export function isProtectedPath(pathname: string): boolean {
+  const normalized = pathname.toLowerCase();
   return PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
   );
 }
 

@@ -36,6 +36,8 @@ export default async function SignupPage({ searchParams }: PageProps) {
         action={signUp}
         submitLabel="登録する"
         next={next ?? undefined}
+        passwordAutoComplete="new-password"
+        passwordMinLength={PASSWORD_MIN_LENGTH}
         passwordHint={`パスワードは${PASSWORD_MIN_LENGTH}文字以上で設定してください。`}
         altPrompt={{
           text: "既にアカウントをお持ちの方は",

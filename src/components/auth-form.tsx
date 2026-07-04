@@ -21,6 +21,10 @@ type AuthFormProps = {
   altPrompt: { text: string; linkLabel: string; href: string };
   /** 新規登録フォームではパスワードの補足を出す。 */
   passwordHint?: string;
+  /** パスワード欄の autoComplete。ログインは current-password、登録は new-password。 */
+  passwordAutoComplete?: "current-password" | "new-password";
+  /** パスワードの最小長。validation.ts の PASSWORD_MIN_LENGTH と一致させる。 */
+  passwordMinLength: number;
 };
 
 const INITIAL_STATE: AuthActionState = { error: null };
@@ -38,6 +42,8 @@ export function AuthForm({
   next,
   altPrompt,
   passwordHint,
+  passwordAutoComplete = "current-password",
+  passwordMinLength,
 }: AuthFormProps) {
   const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
 
@@ -61,9 +67,9 @@ export function AuthForm({
         <input
           type="password"
           name="password"
-          autoComplete="current-password"
+          autoComplete={passwordAutoComplete}
           required
-          minLength={6}
+          minLength={passwordMinLength}
           className="h-9 rounded-md border px-3 text-sm"
         />
         {passwordHint ? (
@@ -74,6 +80,12 @@ export function AuthForm({
       {state.error ? (
         <p role="alert" className="text-sm text-red-600">
           {state.error}
+        </p>
+      ) : null}
+
+      {state.notice ? (
+        <p role="status" className="text-sm text-green-700">
+          {state.notice}
         </p>
       ) : null}
 

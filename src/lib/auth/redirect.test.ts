@@ -27,6 +27,14 @@ describe("isProtectedPath", () => {
     expect(isProtectedPath("/sake/abc")).toBe(false);
     expect(isProtectedPath("/login")).toBe(false);
   });
+
+  it("大文字小文字を正規化して保護する（バイパス防止）", () => {
+    expect(isProtectedPath("/History")).toBe(true);
+    expect(isProtectedPath("/HISTORY")).toBe(true);
+    expect(isProtectedPath("/History/detail")).toBe(true);
+    // 別ルートは大文字でも保護しない
+    expect(isProtectedPath("/Historyx")).toBe(false);
+  });
 });
 
 describe("sanitizeRedirectPath", () => {

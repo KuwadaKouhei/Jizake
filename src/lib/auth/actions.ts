@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import {
   authUnavailableMessage,
+  confirmationSentMessage,
   signInErrorMessage,
   signUpErrorMessage,
 } from "./messages";
@@ -27,34 +28,53 @@ import { parseCredentials } from "./validation";
 
 export type AuthActionState = {
   error: string | null;
+  /** 成功系の案内（メール確認待ちなど、リダイレクトせず表示する文言）。 */
+  notice?: string | null;
 };
 
 /** フォーム送信の共通処理: 入力検証 → Supabase 呼び出し。 */
+type SupabaseAuthResult = {
+  error: string | null;
+  /** サインアップでセッションが張られなかった（メール確認待ち）とき true。 */
+  requiresConfirmation?: boolean;
+};
 type SupabaseAuthOp = (args: {
   email: string;
   password: string;
-}) => Promise<{ error: string | null }>;
+}) => Promise<SupabaseAuthResult>;
 
 async function runCredentialAction(
   formData: FormData,
   op: SupabaseAuthOp,
-): Promise<{ ok: boolean; error: string | null }> {
+): Promise<{
+  ok: boolean;
+  error: string | null;
+  requiresConfirmation: boolean;
+}> {
   const parsed = parseCredentials({
     email: formData.get("email"),
     password: formData.get("password"),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error };
+    return { ok: false, error: parsed.error, requiresConfirmation: false };
   }
 
-  const { error } = await op(parsed.data);
+  const { error, requiresConfirmation } = await op(parsed.data);
   if (error) {
-    return { ok: false, error };
+    return { ok: false, error, requiresConfirmation: false };
   }
-  return { ok: true, error: null };
+  return {
+    ok: true,
+    error: null,
+    requiresConfirmation: requiresConfirmation ?? false,
+  };
 }
 
-/** サインアップ（メール＋パスワード）。成功時は next（既定 /）へ遷移。 */
+/**
+ * サインアップ（メール＋パスワード）。
+ * セッションが張られた（メール確認 OFF）ときのみ next（既定 /）へ遷移し、
+ * メール確認待ち（セッション未発行）のときはリダイレクトせず案内を表示する。
+ */
 export async function signUp(
   _prevState: AuthActionState,
   formData: FormData,
@@ -70,13 +90,22 @@ export async function signUp(
       } catch {
         return { error: authUnavailableMessage() };
       }
-      const { error } = await supabase.auth.signUp({ email, password });
-      return { error: error ? signUpErrorMessage(error.message) : null };
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        return { error: signUpErrorMessage(error.message) };
+      }
+      // Confirm email が ON の設定では session が null（確認メール送信のみ）。
+      return { error: null, requiresConfirmation: data.session === null };
     },
   );
 
   if (!result.ok) {
     return { error: result.error };
+  }
+  if (result.requiresConfirmation) {
+    // 未ログインのままリダイレクトすると /history 等で弾かれ不可解な導線になるため、
+    // 遷移せず確認メールの案内を出す（REVIEW T08 CODE S-2）。
+    return { error: null, notice: confirmationSentMessage() };
   }
   redirect(resolveAfterLogin(next));
 }
