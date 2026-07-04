@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "import:sakenowa": "tsx scripts/import-sakenowa.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
