@@ -1,19 +1,20 @@
 # レビュー・監査結果（REVIEW）
 
-> 対象: `main...feature/T10-recommend`（T10 履歴ベース推薦エンジン＋ホーム表示）
+> 対象: `main...feature/T11-embedding-pipeline`（T11 埋め込みパイプライン）
 > 実施日: 2026-07-04
-> レビュアー: code-reviewer / security-auditor / web-performance-auditor / philosophy-compliance-reviewer（4ペルソナ並行）
-> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T09: PR #9）
+> レビュアー: code-reviewer / security-auditor / philosophy-compliance-reviewer（3ペルソナ並行。バッチスクリプトで UI 変更がないため性能監査は省略）
+> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T10: PR #10）
 
 ## 判定: ✅ マージ可
 
-Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `8fcf732`, `709bd35`）。修正後、全検証グリーン（290 テスト・lint・typecheck・format・build）。
+Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T11 レビュー指摘対応`）。修正後、全検証グリーン（309 テスト・lint・typecheck・format・build）。
 
 ## 検証結果
 
-- test 37 ファイル / 290 件全パス（T10 で +36）
-- lint / typecheck / format:check / build すべてグリーン
-- 思想準拠は「差し替え可能な知能は文句なく合格」、性能は「全 RSC・N+1 回避・インデックス活用が良好」、セキュリティは「ユーザーデータ分離は堅牢」と評価
+- test 40 ファイル / 309 件全パス（T11 で +19）
+- lint / typecheck / format:check / build すべてグリーン（API キー未設定でも build 成功）
+- git 全履歴のシークレット走査: クリーン（実 API キー混入なし）
+- 思想準拠は「差し替え可能な知能・ベンダー型閉じ込め・LLM API モックいずれも高水準」と評価
 
 ## 指摘と対応
 
@@ -25,30 +26,31 @@ Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コ
 
 | # | 出所 | 指摘 | 対応 |
 |---|---|---|---|
-| S-1 | 性能/セキュリティ | 候補クエリに上限がなく、汎用タグを持つヘビーユーザーで母集団が数百〜千件に膨らむ（自己 DoS・レイテンシ逆進性） | `candidatePoolSize=200` で人気順（`popularity_rank NULLS LAST`→id）に切ってスコアリング。`truncateProfileTags` で IN 句に渡すタグを重み上位 `maxProfileTags=30` に絞る |
-| S-2 | コード | 閲覧済み除外が直近 100 件の履歴に限定され、ヘビーユーザーで既視銘柄が推薦に混入 | 除外用に全期間の `selectViewedSakeIds`（distinct・`excludeIdCap=5000`）を分離。集計用の直近履歴と役割分担 |
-| S-3 | コード | `limit > popularPoolSize` で件数不足になる不変条件が未保証 | 母集団取得を `limit(max(poolSize, limit))` に。ホームを常に埋める |
-| S-4 | 思想 | DESIGN §2.5/§4.2 の「単一の集計 SQL」記述と実装（複数クエリ）の乖離が未記録 | DESIGN を「複数クエリ＋スコア計算の純関数」に更新、TASKS 実施メモに分割理由を追記 |
-| S-5 | 思想 | ホーム見出しが「ログイン有無」で、履歴しきい値未満でも「あなたへのおすすめ」と出る | 「履歴ベースの推薦が 1 件でもあるか」で判定し、全 popular なら「人気の日本酒」に倒す（透明性） |
+| S-1 | コード | `embedTexts` が常に `EMBEDDING_MODEL_ID` を使うため、`embedSakes` の `model` 引数（差分判定・DB 記録に使用）と乖離しうる（生成モデルと記録モデルの二重真実） | `model` を `EmbedTextsFn` の引数としてスレッドし、生成と記録で同一値を使うよう一元化。生成モデル＝記録モデルの一致をテストで検証 |
+| S-2 | セキュリティ | 埋め込み失敗ログに AI SDK エラー全体（`responseBody`・`requestBodyValues`・ヘッダ＝トークン断片や本文）が載り得る | ログを `error.message` のみに絞る |
+| S-3 | セキュリティ | git 履歴に実 API キーが無いか要確認 | 全履歴走査を実施しクリーンを確認（対応不要と確定） |
 
-### Consider（対応済み・任意分も反映）
+### Consider（対応済み・記録）
 
-- SEC C-1: `recommend()` の `limit` を `min(max(0,limit),50)` にクランプ（将来の呼び出しミス耐性）— 対応済み
-- CODE C-1: コールドスタート（履歴しきい値未満のログインユーザー）にも閲覧済み ID を渡し既視除外 — 対応済み
-- 記録のみ: `filters` jsonb の防御的読み取りは書き込み側 Zod 制限（MAX_TAGS/MAX_TAG_LENGTH）と二重
+- CODE C-1: DATABASE §2.10 の model 記録例を Gateway 形式 `openai/text-embedding-3-small` に更新 — 対応済み
+- CODE C-2: 注入経路（フェイク）が誤った次元を返しても vector(1536) 列へ入れないよう、`embedSakes` の upsert 直前に次元検証を追加 — 対応済み
+- CODE C-4: バッチ部分適用が冪等再実行で継続する意図を docstring に明記 — 対応済み
+- 記録のみ: `ai@^6.0.219` はキャレット指定のため `npm ci`＋CI `npm audit` を継続、`loadExistingEmbeddings` の全件 Map は現規模で妥当
 
 ## 受け入れ条件の充足
 
-- FR-05 後半（ホームに履歴に基づくおすすめ、履歴が無い場合は人気等のフォールバック）: `recommend({userId, limit})` の固定 IF＋ルールベース実装＋コールドスタート（人気ランキング）をテストで担保 ✅
-- 制約: 実データでの推薦品質は Supabase 稼働＋履歴蓄積後。ロジックは PGlite で検証済み
+- FR-08 の基盤（RAG の知識源となる埋め込みの生成・格納）: 説明文つき銘柄の差分埋め込み（sourceHash）＋冪等 upsert を PGlite（+pgvector）で検証。1536 次元の格納・モデル差し替え再生成・タグ変化検知をテスト ✅
+- 制約: 実 API での埋め込み生成は AI Gateway キー＋Supabase 稼働後（残作業）。日本語埋め込み精度の検証は T13 の PoC。ロジックは注入したフェイクベクトルで検証済み
 
-## 設計思想の達成（差し替え可能な知能）
+## 設計思想の達成（差し替え可能な知能・RAG 版）
 
-- 公開 IF（`recommend`）を `src/lib/recommend/types.ts` で固定、実装選択は `index.ts` の 1 箇所の委譲のみ、呼び出し側（`page.tsx`）は `recommend` と型のみに依存
-- スコアリング（純関数 `scoring.ts`）と DB アクセス（`rule-based.ts`）を分離し、重み・減衰・しきい値・上限をすべて定数化
-- 将来 協調フィルタリング等へ差し替えても `index.ts` の委譲先変更のみでホーム画面は無変更（DIRECTORY_STRUCTURE 例2 が物理的に成立）
+- AI SDK の import を `src/lib/ai/embedding.ts` の 1 箇所に閉じ込め（DIRECTORY_STRUCTURE §5.2）。UI・スクリプトはアプリ内型のみ扱う
+- モデルは AI Gateway の `provider/model` 文字列（`models.ts` 定数）で、切替が定数変更で完結
+- 埋め込み関数を `EmbedTextsFn` で注入する境界により、実 API とテスト用フェイクを差し替え可能（retriever・generator 分離の準備）
+- 純関数（`buildEmbeddingText`・`computeSourceHash`）と DB/API 実装を分離、差分基準を「埋め込み対象テキスト全体」に統一（DESIGN §2.7 に理由を記録）
 
-## 性能・セキュリティの特記
+## セキュリティ・思想の特記
 
-- ホームは全 RSC・`force-dynamic`、クライアント JS 増分ゼロ。履歴・候補・人気クエリは N+1 回避（`selectTagsBySakeIds` 一括）でインデックス活用
-- `userId` は `getCurrentUser()` 由来のみ（クライアント指定不可）、SQL は全経路パラメータ化、推薦理由は本人の嗜好カテゴリのみで他人・内部情報を出さない
+- シークレット直書きなし、`.env.example` は空プレースホルダ、キーは gateway プロバイダが実行時参照（import/build を壊さない）
+- 送信データは公開表示前提の非機微データ（銘柄・説明文・タグ）、SQL は全経路パラメータ化
+- テストは実 API を叩かずフェイクベクトル注入（TEST_PHILOSOPHY「LLM API は必ずモック」に準拠）
