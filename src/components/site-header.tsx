@@ -8,6 +8,7 @@ const NAV_ITEMS: readonly { href: string; label: string }[] = [
   { href: "/", label: "ホーム" },
   { href: "/search", label: "検索" },
   { href: "/prefectures", label: "地酒を探す" },
+  { href: "/chat", label: "チャットで相談" },
 ];
 
 /**

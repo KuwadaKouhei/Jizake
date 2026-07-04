@@ -20,6 +20,7 @@
     "rag:poc": "tsx scripts/rag-poc.ts"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.221",
     "@base-ui/react": "^1.6.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.0",
