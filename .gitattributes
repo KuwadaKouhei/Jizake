@@ -1,0 +1,8 @@
+# 改行コードは LF に統一する（Windows/CI 間の EOL 差分ノイズを防ぐ。Prettier の endOfLine=lf と整合）
+* text=auto eol=lf
+
+# バイナリ
+*.ico binary
+*.png binary
+*.jpg binary
+*.woff2 binary

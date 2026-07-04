@@ -1,5 +1,6 @@
 # ビルド成果物・生成物
 .next/
+drizzle/
 out/
 build/
 coverage/
