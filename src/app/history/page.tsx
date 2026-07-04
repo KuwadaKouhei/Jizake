@@ -38,6 +38,8 @@ export default async function HistoryPage() {
   }
 
   // user_id は各クエリが認証セッションから強制取得する（ここでは page を渡さず 1 ページ目）。
+  // 現状は直近 24 件のみ表示（ページャ UI は将来対応。REVIEW T09 PERF C-1）。行数が増えたら
+  // OFFSET から keyset ページネーションへ移行する。
   const [viewHistory, searchHistory] = await Promise.all([
     getViewHistoryPage(),
     getSearchHistoryPage(),

@@ -1,56 +1,59 @@
 # レビュー・監査結果（REVIEW）
 
-> 対象: `main...feature/T08-auth`（T08 認証 Supabase Auth）
+> 対象: `main...feature/T09-history`（T09 履歴記録と履歴画面）
 > 実施日: 2026-07-04
-> レビュアー: code-reviewer / security-auditor / philosophy-compliance-reviewer（3ペルソナ並行。UI/データ量が小さいため性能監査は省略）
-> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T07: PR #7）
+> レビュアー: code-reviewer / security-auditor / web-performance-auditor / philosophy-compliance-reviewer（4ペルソナ並行）
+> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T08: PR #8）
 
 ## 判定: ✅ マージ可
 
-Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T08 レビュー指摘対応`）。修正後、全検証グリーン（218 テスト・lint・typecheck・format・build）。
+Blocker 1 件（セキュリティ）・Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T09 レビュー指摘対応`）。修正後、全検証グリーン（254 テスト・lint・typecheck・format・build）。
 
 ## 検証結果
 
-- test 29 ファイル / 218 件全パス（T08 で +41）
-- lint / typecheck / format:check / build すべてグリーン（env 未設定でも build 成功＝遅延取得の意図どおり）
-- セキュリティ監査で「認証設計は @supabase/ssr 公式パターンに忠実、Blocker なし」
+- test 35 ファイル / 254 件全パス（T09 で +36）
+- lint / typecheck / format:check / build すべてグリーン
+- IDOR/ユーザーデータ分離は「堅牢」（セキュリティ監査）、fire-and-forget・N+1 回避・RSC 純度も良好（性能）
 
 ## 指摘と対応
 
-### Blocker
+### Blocker（対応済み）
 
-なし。
+| # | 出所 | 指摘 | 対応 |
+|---|---|---|---|
+| B-1 | セキュリティ | `recordSearch` がクライアント由来の `criteria` をサーバ側で再検証せず jsonb に INSERT（自分の履歴への注入・肥大化。`recordView` の `isValidSakeId` と非対称） | `sanitizeCriteria`（検索 Zod スキーマを単一情報源に再利用）で q 長さ・タグ数/長さ・都道府県書式をサーバ側再検証してから INSERT。回帰テスト追加 |
 
 ### Should（すべて対応済み）
 
 | # | 出所 | 指摘 | 対応 |
 |---|---|---|---|
-| S-1 | コード | メール確認 ON 時、signUp 成功でセッション未発行なのに `/`（や `/history`）へ遷移し、middleware に弾かれる不可解な導線 | `data.session === null` を検出したらリダイレクトせず「確認メール送信」案内を表示。運用設定への依存を実装で吸収 |
-| S-2 | コード | signup フォームの password が `autoComplete="current-password"`・`minLength` ハードコード | `passwordAutoComplete`/`passwordMinLength` を props 化。登録は `new-password`、最小長は `PASSWORD_MIN_LENGTH` と一元化 |
-| S-3 | セキュリティ | `isProtectedPath` が大文字小文字を区別せず `/History` でバイパスされる理論的余地（ページ側再検証で実害は緩和済み） | `toLowerCase()` 正規化で保護を安全側に広く倒す＋テスト |
-| S-4 | コード | `redirectToLogin` が文字列を `?` で split して URL 再構築（`&` 混入時に壊れやすい） | `URL`/`searchParams.set` に変更しエンコードを担保 |
+| S-1 | コード/性能 | `getCurrentUser` が 1 リクエストで最大 3 回 `getUser()`（トークン検証の往復）を反復 | `React.cache` でラップ（全ページのヘッダー・ページ本体で 1 回に集約する横断改善） |
+| S-2 | セキュリティ | fire-and-forget の失敗ログに `error` 全体（SQL パラメータ・query・filters）が載り得る | `error.message` のみに絞り、ユーザー入力をログに残さない |
+| S-3 | セキュリティ | 味タグ 1 要素の長さが無制限 | `MAX_TAG_LENGTH=32` で各要素を切り詰め（B-1 の再検証と併せて jsonb 肥大化を防止） |
+| S-4 | コード | 検索履歴ラベルのリスト key が配列インデックス | 位置＋値 `${i}-${label}` で一意化 |
 
-### Consider（記録）
+### Consider（引き継ぎ・記録 → TASKS の非機能フォローに追記）
 
-- **ログインのレート制限**: アプリ側は未実装だが Supabase Auth 側のサーバレベル制限に一次依存。DESIGN §6.2「乱用が観測されてから追加」方針どおりで対応不要（記録のみ）
-- **未使用の `client.ts`（browser クライアント）**: @supabase/ssr 標準一式として DIRECTORY_STRUCTURE §2・TASKS T08① に明記済みの先行配置。T09 以降で購読に使う想定
-- **CSP/HSTS**: 認証ページ含む CSP/HSTS は本ブランチ範囲外。デプロイ整備時に検討（T05 で基本ヘッダは導入済み）
+- **履歴書き込みのレート制限／重複抑制（SEC S-2 / PERF S-1）**: `view_histories` は追記専用（同一銘柄の複数閲覧を別行）で設計どおりだが、ヘビーユーザーで行数が膨らむと `count()`/`OFFSET` が劣化。DESIGN §6.2 の「乱用が観測されてから追加」方針に沿い、実データ稼働後に「直近 N 分の同一 sakeId は 1 行」等を検討。TASKS の非機能フォローに記録
+- **履歴一覧のページャ UI（PERF C-1）**: クエリは `total`/`page`/`pageSize` を返すがページ側は 1 ページ固定。当面は直近 24 件表示で受け入れ条件（FR-05 前半）を満たす。keyset ページネーション化と併せて将来対応。page.tsx にコメントで明記
+- **`filters` の型**: 公開境界で `unknown` ＋ `readFilters` の実行時ガード（DB を信頼しない姿勢として妥当）。将来 Zod スキーマ化の余地
+- **RLS 二段目**: Drizzle のサーバ接続は RLS 素通しのため、実効防御は一段目（`getCurrentUser` からの user_id 強制）。DESIGN §6.2 で想定・文書化済み
 
 ## 受け入れ条件の充足
 
-- FR-04（メールでサインアップ/ログイン/ログアウト、未ログインで履歴・パーソナライズにアクセスすると誘導）: Server Actions＋@supabase/ssr、`/history` 保護（middleware＋ページ側の多層防御）、`/login?next=` 誘導をテストで担保 ✅
-- 非機能「資格情報のハッシュ化・シークレット非コミット」: パスワードは Supabase 委任、anon key のみ使用（service_role 混入なし）、git 履歴クリーン ✅
-- 制約: 実キーでのサインアップ/ログイン疎通・profiles トリガ・Confirm email 設定確認は Supabase 稼働後の残作業（TASKS 記録）。ロジックは純関数＋モックで検証済み
+- FR-05 前半（詳細ページ閲覧と検索実行が履歴として記録される）: fire-and-forget Server Action で view/search を記録（未ログイン no-op・空条件スキップ）✅
+- FR-04（未ログインで履歴にアクセスすると誘導）: T08 の `/history` 保護＋本タスクで実画面を表示 ✅
+- 非機能「履歴は本人のみ参照可能」: user_id 強制フィルタ（主防御）＋ RLS（二段目）。他人の履歴が漏れないことを PGlite テストで検証 ✅
+- 制約: 実データ記録疎通・RLS 実効遮断は Supabase 稼働後の残作業。ロジックは PGlite＋モックで検証済み
 
-## セキュリティ総評（認証の要点）
+## セキュリティ総評（ユーザーデータ分離）
 
-- **サーバ検証 `getUser()` を一貫使用**（未検証 `getSession()` に認可を委ねない）
-- **オープンリダイレクト対策**: `sanitizeRedirectPath` が絶対 URL・`//`・バックスラッシュ・制御文字を弾き、サーバ側で再検証（多層防御）
-- **情報漏洩防止**: ログイン失敗はアカウント存在を推測させない固定文言、エラーは汎用化
-- **Cookie は @supabase/ssr 既定の httpOnly/secure/SameSite**、Server Actions の CSRF 耐性
+- 公開関数（`getViewHistoryPage`/`getSearchHistoryPage`/`recordView`/`recordSearch`）は user_id を引数で受けず `getCurrentUser` から強制取得＝クライアントから他人の user_id を渡す経路が型レベルで存在しない
+- 記録は未ログイン no-op、`getUser()` のサーバ検証、Server Action の CSRF 耐性
+- 退会時は `auth.users`→`profiles`→履歴の CASCADE で全削除、履歴に不要な個人情報を保存しない
 
 ## 思想準拠の特記
 
-- `@supabase/*` import を `src/lib/auth/` の 3 ファイルに閉じ込め、UI にはアプリ内型 `AuthUser` のみ露出（ベンダー型の閉じ込め）
-- Progressive Personalization（原則5）を「仕組みで」担保: env 未設定でも匿名機能が生存、保護は `/history` のみ
-- `middleware.ts`→`src/proxy.ts` 改名・`/history` ガード先行有効化・エラー文言汎用化はすべて実施メモ＋ドキュメントに記録（黙った逸脱なし）
+- 記録 Server Action を各セグメントの `_actions/` に、履歴クエリを `/history/_lib` にコロケーション
+- 履歴 `_lib` → 検索 `_lib` の一方向参照（循環なし）を DIR-11・§5.2 例外として記録（「逸脱ルールが期待どおり機能した好例」と評価）
+- fire-and-forget・追記専用イベントログ・user_id 二段防御は DESIGN §2.4/§6.2・決定 D3 どおり
