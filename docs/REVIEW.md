@@ -1,57 +1,59 @@
 # レビュー・監査結果（REVIEW）
 
-> 対象: `main...feature/T13-rag-poc`（T13 RAG 精度 PoC ＋ T12 B-1 移管）
+> 対象: `main...feature/T14-chat`（T14 RAG チャットボット UI＋API）
 > 実施日: 2026-07-04
 > レビュアー: code-reviewer / security-auditor / web-performance-auditor / philosophy-compliance-reviewer（4ペルソナ並行）
-> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T12: PR #12）
+> ※ 過去のレビュー結果は git 履歴を参照（T01: PR #1 〜 T13: PR #13）
 
 ## 判定: ✅ マージ可
 
-Blocker 0 件（T12 から移管された B-1 のクエリ形状は本タスクで解消）。Should をすべて本ブランチ内で対応済み（対応コミット: `fix: T13 レビュー指摘対応` 系）。修正後、全検証グリーン（363 テスト・lint 0 警告・typecheck・format・build）。
+Blocker 0 件。Should をすべて本ブランチ内で対応済み（対応コミット: `a71b7c8`, `60386ba`, `4b4d66c`, `9a79491`）。修正後、全検証グリーン（384 テスト・lint 0 警告・typecheck・format・build〔Turbopack + webpack 型チェック〕）。
 
 ## 検証結果
 
-- test 47 ファイル / 363 件全パス
-- lint / typecheck / format:check / build すべてグリーン（scripts は本番バンドル対象外を実測確認）
-- **性能: B-1 のクエリ形状は解消**（ANN 経路が素の `<=>` ORDER BY LIMIT）、思想準拠は「模範的」、セキュリティは「捏造防止 E2E は本物の防御を担保・Blocker/Should なし」と評価
+- test 44 ファイル / 384 件全パス（strip-data-parts の +3 含む）
+- lint / typecheck / format:check / build すべてグリーン
+- **セキュリティ: 捏造防止・XSS・プロンプトインジェクションは「構造的に堅牢」**（LLM 出力を信頼境界外として扱い、サーバ側 DB 検証が真の担保）。性能・思想準拠も良好
 
 ## 指摘と対応
 
-### Blocker（B-1 は本タスクで解消）
+### Blocker
 
-| # | 出所 | 指摘 | 対応 |
-|---|---|---|---|
-| B-1 | 性能（T12 移管） | HNSW が効かないクエリ形状（CASE+LEFT JOIN+複合 ORDER BY） | ANN 経路（`sake_embeddings` 起点の素の `<=>` ORDER BY LIMIT）とタグ経路（埋め込み無し銘柄を残す）に分離。機能等価を PGlite テストで担保、実 Postgres の EXPLAIN 確認手順（3 形状＋フォールバック）を RAG_POC.md §8.4 に記録 |
+なし。
 
 ### Should（すべて対応済み）
 
 | # | 出所 | 指摘 | 対応 |
 |---|---|---|---|
-| S-1 | 性能 | タグ未指定＋freeText のみで母集団が最大 pool×2 に膨らむ | ハード絞り込み無し＋freeText のみ（純粋な意味検索）のときタグ経路を省き ANN のみに（母集団半減）。埋め込み無し銘柄は意味検索では拾わない挙動をテストで固定 |
-| S-2 | コード | 「同じ候補・同じ順位」コメントが母集団拡大の境界ケースで過剰主張 | 「上位 limit 件は距離で等価・候補が limit 未満のとき下位の顔ぶれは母集団の取り方で変わり得る」に是正 |
-| S-3 | コード | `compareScored` の名前タイブレークが SQL 照合順と厳密一致しない | id（UUID）で必ず決着する旨＋localeCompare は補助である旨をコメント明記 |
-| S-4 | 性能 | フィルタ有り形状で HNSW が実データで残るか未確認 | RAG_POC.md §8.4 に 3 形状（無し/都道府県/タグ EXISTS）の個別 EXPLAIN 手順と、外れた場合の ANN 単独化フォールバック設計を記録 |
-| S-5 | 思想 | scripts→`src/lib/rag` の import が DIRECTORY_STRUCTURE の許可列挙に無い | §5.2/§3/責務表に「PoC 評価で retriever を呼ぶ」許可を追記 |
+| S-1 | セキュリティ | `role` に `system` を許容しクライアントから system 注入の下地 | `z.enum(["user","assistant"])` に限定 |
+| S-2 | セキュリティ | `maxOutputTokens` 未設定で出力側コスト DoS が素通し | `MAX_OUTPUT_TOKENS=1024` を streamText に設定（DESIGN §6.3 の最低限ガード前倒し） |
+| S-3 | セキュリティ | `parts` 配列に要素数上限がなく増幅 DoS の余地 | `.max(50)` を追加 |
+| S-4 | コード | クライアントが echo する過去の `data-proposedSakes` パートが信頼境界外で LLM コンテキストに漏れ得る | `stripAssistantDataParts` 純関数で convertToModelMessages 前に明示除去。data 内容が LLM 材料に混ざらないことをテスト固定（Zod strip の暗黙挙動に依存しない） |
+| S-5 | コード | サーバ onError と useChat error の文言が二重管理 | ユーザー向けエラー文言を UI（chat-container）に一本化、サーバ onError はログ＋エラーパートに徹する（責務をコメント明示） |
+| S-6 | 性能 | `/chat` の First Load JS が +498KB（gzip 118KB、ai+@ai-sdk/react+zod）で他ルートの約5.6倍 | ChatContainer を `next/dynamic`（`ssr:false`）で遅延読み込み、LCP 要素（h1・説明文）は RSC の page.tsx に静的に残す。page エントリチャンク約61%減、SDK は表示後に非同期取得 |
 
 ### Consider（対応済み・記録）
 
-- セキュリティ: `npm run rag:poc` の本番 DB 誤接続注意、T14 で `fabrication-guard` を本番スキーマに差し替える TODO、ハーネス撤去方針を RAG_POC.md に記録 — 対応済み
-- コード C-1〜C-3（テスト説明の関数名併記・fake-embedding のハッシュ回数・匿名型）は使い捨て資産／局所利用のため据え置き妥当
+- CODE/PERF C-2: 提案カードの `key` を先頭 sake.id で安定化 — 対応済み
+- PHIL S-1: fabrication-guard（PoC 雛形）と本番 `proposeSakeInputSchema` の相互参照コメント＋RAG_POC §6 の TODO 消し込み（T14 で tools.test.ts に移設決着）— 対応済み
+- SEC/CODE: 偽装 `data-*` パートが Zod strip＋`stripAssistantDataParts` で LLM/描画に到達しない旨をコメント明記 — 対応済み
+
+## 実装上の判断（記録）
+
+- **Route Handler の export 規約**: `route.ts` から純関数を export すると Next.js が不正なルートエントリと解釈し webpack ビルドで型エラー（Turbopack build は見逃す）になるため、`_lib/strip-data-parts.ts` に切り出し。webpack 型チェックでも通過を確認
 
 ## 受け入れ条件の充足
 
-- FR-08（品質リスク R3/R4 の解消見込みの確定）: 評価ハーネス（recall@k/MRR/hit@k・実/ダミー両対応）、捏造防止 E2E（DB 非存在・UUID 非書式・実在混在）、B-1 のクエリ形状解消、初版システムプロンプトを整備 ✅
-- 制約: 精度の絶対値・retriever 重みの確定・実 LLM 往復・実 Postgres の EXPLAIN は**実キー投入後の残作業**（RAG_POC.md §6 に明記）。ダミー埋め込みで確立したのは「ハーネスが動く・指標が計算される・実行手順」であり精度を誇張していない
+- FR-08（チャットで質問→回答→複数提案、提案は実在銘柄＋詳細リンク、捏造しない）: `/api/chat` の streamText＋searchSake/proposeSake、proposeSake の ID を `validateProposedSakeIds` で DB 検証してから検証済みカードのみ送信、useChat ストリーミング UI、提案は sake-card で /sake/[id] リンク付き表示。捏造防止の二段構えをテストで担保 ✅
+- 制約: 実 LLM 往復・エラー表示の実挙動・モデル ID の正確性は実キー投入後の残作業。ロジックは AI アダプタのモックで検証済み
 
 ## 設計思想の達成
 
-- retriever は AI SDK・streamText を一切 import せず LLM 非依存（generator=T14 と分離）、埋め込みは `EmbedQueryFn` 注入
-- B-1 対応でも公開シグネチャ `retrieve(query)`→`SakeCandidate[]` は不変（T12 移管条件を厳守）
-- 捏造防止は「プロンプト一段目＋サーバ側 DB 存在検証二段目」の二段構え、重み・k・上限は定数化
-- ダミー埋め込みの限界を RAG_POC.md・各テスト・スクリプトで繰り返し明記する誠実な文書化
+- AI SDK の import は `src/lib/ai`・`src/app/api/chat`・`chat/_components` の useChat のみ（DIRECTORY_STRUCTURE §5.2）。`src/lib/rag` は AI SDK 非依存を維持（retriever/generator 分離）
+- 捏造防止の二段構え: searchSake が retriever の実在候補のみ LLM に返す（一段目）＋ proposeSake の ID を DB 存在検証（二段目）。tool result に LLM 自由文を混ぜず、UI は検証済みデータパートからのみ SakeCard 描画
+- T14/T15 の境界（レート制限・詳細コスト上限・タイムアウト/フォールバック・chat_sessions 保存は T15）を実施メモに明記、先回りの抽象化なし
 
-## 次タスクへの引き継ぎ（T14）
+## 次タスクへの引き継ぎ（T15）
 
-- `src/lib/ai/prompts.ts` の初版システムプロンプト（ヒアリング 2〜3 問→検索→検索結果内の銘柄のみ提案・捏造禁止・インジェクション拒否）を使用
-- `proposeSake` の structured output → `validateProposedSakeIds` で ID 検証してからカード送信
-- 実キー投入後に retriever 重み確定・実 LLM 往復・B-1 の EXPLAIN 確認
+- 匿名レート制限・多数リクエスト連打対策・maxDuration・タイムアウト→検索誘導フォールバック・chat_sessions/chat_messages 保存（検証済み ID のみ）
+- 実キー投入後: 実 LLM 往復疎通・S-5 のエラー表示実挙動・`CHAT_MODEL_ID` の正確性確定
