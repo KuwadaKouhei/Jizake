@@ -54,9 +54,8 @@ describe("ChatContainer", () => {
     const { sendMessage } = mockUseChat();
     render(<ChatContainer />);
 
-    const textarea = screen.getByLabelText<HTMLTextAreaElement>(
-      "メッセージを入力",
-    );
+    const textarea =
+      screen.getByLabelText<HTMLTextAreaElement>("メッセージを入力");
     fireEvent.change(textarea, { target: { value: "辛口が好き" } });
     fireEvent.click(screen.getByRole("button", { name: "送信" }));
 
@@ -69,7 +68,9 @@ describe("ChatContainer", () => {
     render(<ChatContainer />);
 
     // 入力が空なので送信ボタンは無効。フォーム送信しても sendMessage は呼ばれない。
-    fireEvent.submit(screen.getByLabelText("メッセージを入力").closest("form")!);
+    fireEvent.submit(
+      screen.getByLabelText("メッセージを入力").closest("form")!,
+    );
     expect(sendMessage).not.toHaveBeenCalled();
   });
 

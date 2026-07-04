@@ -65,7 +65,9 @@ const searchSakeInputSchema = z.object({
   freeText: z
     .string()
     .optional()
-    .describe("ユーザーの好みを表す自然文（味わい・シーンなど）。ベクタ検索に使う"),
+    .describe(
+      "ユーザーの好みを表す自然文（味わい・シーンなど）。ベクタ検索に使う",
+    ),
   tagNames: z
     .array(z.string())
     .optional()
@@ -74,10 +76,7 @@ const searchSakeInputSchema = z.object({
     .string()
     .optional()
     .describe("都道府県の JIS コード（2 桁。例: 山口=35）"),
-  priceRange: z
-    .string()
-    .optional()
-    .describe("価格帯区分"),
+  priceRange: z.string().optional().describe("価格帯区分"),
 });
 
 /** LLM へ返す候補 1 件（tool result）。実在 sakeId を必ず含む。 */
@@ -104,11 +103,15 @@ export const proposeSakeInputSchema = z.object({
   proposals: z
     .array(
       z.object({
-        sakeId: z.string().describe("提案する銘柄の ID（searchSake の結果に含まれるもの）"),
+        sakeId: z
+          .string()
+          .describe("提案する銘柄の ID（searchSake の結果に含まれるもの）"),
         reason: z
           .string()
           .min(1)
-          .describe("その銘柄を勧める一言理由（検索結果の説明・タグの範囲で述べる）"),
+          .describe(
+            "その銘柄を勧める一言理由（検索結果の説明・タグの範囲で述べる）",
+          ),
       }),
     )
     .min(1)

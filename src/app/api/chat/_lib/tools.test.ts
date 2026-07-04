@@ -100,7 +100,11 @@ describe("proposeSake（捏造防止の二段目）", () => {
     );
 
     // validator には LLM が返した全 ID（捏造含む）が渡る。
-    expect(validateProposedSakeIds).toHaveBeenCalledWith([REAL_A, FAKE, REAL_B]);
+    expect(validateProposedSakeIds).toHaveBeenCalledWith([
+      REAL_A,
+      FAKE,
+      REAL_B,
+    ]);
     // tool result には検証を通った件数（2）だけが返る。
     expect(result).toEqual({ proposedCount: 2 });
 
@@ -167,7 +171,10 @@ describe("searchSake（retriever を呼ぶ）", () => {
   it("入力条件で retriever を呼び、候補を ID・名前・タグに整形して返す", async () => {
     const { writer } = createFakeWriter();
     const retrieve = vi.fn<(query: RetrieveQuery) => Promise<SakeCandidate[]>>(
-      async () => [makeCandidate(REAL_A, "獺祭"), makeCandidate(REAL_B, "而今")],
+      async () => [
+        makeCandidate(REAL_A, "獺祭"),
+        makeCandidate(REAL_B, "而今"),
+      ],
     );
 
     const tools = createChatTools({
@@ -177,7 +184,11 @@ describe("searchSake（retriever を呼ぶ）", () => {
     });
 
     const result = (await tools.searchSake.execute!(
-      { freeText: "華やかで飲みやすい", tagNames: ["華やか"], prefectureCode: "35" },
+      {
+        freeText: "華やかで飲みやすい",
+        tagNames: ["華やか"],
+        prefectureCode: "35",
+      },
       toolOptions,
     )) as { candidates: unknown[] };
 
