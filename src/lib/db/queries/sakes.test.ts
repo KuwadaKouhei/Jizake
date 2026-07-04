@@ -29,6 +29,8 @@ describe("isValidSakeId", () => {
       "",
       "11111111-1111-4111-8111", // 桁不足
       "'; DROP TABLE sakes; --", // SQL インジェクション様の入力
+      "11111111-1111-1111-1111-111111111111", // v4 でない（version ニブルが 1）
+      "11111111-1111-4111-c111-111111111111", // variant ニブルが不正（c）
     ]) {
       expect(isValidSakeId(invalid)).toBe(false);
     }

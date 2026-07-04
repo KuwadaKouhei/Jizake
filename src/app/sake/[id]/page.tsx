@@ -34,11 +34,13 @@ export async function generateMetadata({
     // 生成できない場合はレイアウトのデフォルトタイトルに委ねる
     return {};
   }
+  // 空文字の説明文（?? は null/undefined のみ捕捉）でもフォールバックするよう trim で判定
+  const description = sake.description?.trim();
   return {
     title: sake.name,
-    description:
-      sake.description?.slice(0, 120) ??
-      `${sake.breweryName}の${sake.name}の詳細ページ`,
+    description: description
+      ? description.slice(0, 120)
+      : `${sake.breweryName}の${sake.name}の詳細ページ`,
   };
 }
 

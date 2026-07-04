@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { cache } from "react";
 
 import { getDb } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
@@ -64,10 +65,11 @@ export type SakeDetail = SakeSummary & {
   flavor: FlavorChart | null;
 };
 
-// UUID v4 の書式（DATABASE.md §1.3: 全 PK は gen_random_uuid()）。
+// UUID v4 の書式（DATABASE.md §1.3: 全 PK は gen_random_uuid() = v4）。
+// version ニブル（4）と variant ニブル（8/9/a/b）まで固定して v4 に限定する。
 // 不正な id は DB へ問い合わせる前に弾き、notFound() に落とす（T05 ⑤）。
 const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** id が UUID の書式かを判定する（URL パラメータの境界検証）。 */
 export function isValidSakeId(id: string): boolean {
@@ -190,7 +192,9 @@ export async function selectSakeDetail(
  * - id が UUID 書式でない、または該当銘柄が無い場合は null を返す
  *   （呼び出し側の RSC が notFound() に変換する。T05 ⑤）。
  * - 蔵元は INNER JOIN（brewery_id は NOT NULL）。
+ * - React.cache でラップし、同一リクエスト内の重複呼び出し（generateMetadata と
+ *   本体レンダリング）で DB クエリが二重に走らないようメモ化する。
  */
-export function getSakeDetail(id: string): Promise<SakeDetail | null> {
-  return selectSakeDetail(getDb(), id);
-}
+export const getSakeDetail = cache((id: string): Promise<SakeDetail | null> =>
+  selectSakeDetail(getDb(), id),
+);
