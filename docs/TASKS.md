@@ -418,55 +418,72 @@
 | ブランチ | `feature/T12-rag-retriever` |
 | 状態 | レビュー中 |
 
-> 実施メモ（2026-07-04）: ①〜③完了（作成: `src/lib/rag/retriever.ts`・`validate-proposed.ts`・
-> `extract-conditions.ts` ＋各テスト）。設計判断と実装内容:
+> 実施メモ（2026-07-04）: 作成 `src/lib/rag/retriever.ts`・`validate-proposed.ts` ＋各テスト。
+> ③味タグ・都道府県の抽出は retriever が「渡された条件＋freeText」で動くため専用ファイルを持たない
+> （レビュー PHIL S-1 で当初の `extract-conditions.ts` を削除。下記参照）。設計判断と実装内容:
 > - **retriever は LLM 非依存を厳守（DESIGN §2.6 の retriever/generator 分離）**: `src/lib/rag` から
->   AI SDK・streamText は一切 import しない。依存は共通カタログ（`SakeSummary`・`selectTagsBySakeIds`）と
->   埋め込みアダプタ（`embedText`）のみ。埋め込み関数は `EmbedQueryFn` で注入し、テストはダミーの
->   クエリベクトルを差し込む（実 API を叩かない。TEST_PHILOSOPHY）。generator（streamText）は T14 の
->   `/api/chat` の責務。
+>   AI SDK・streamText は一切 import しない。依存は共通カタログ（`SakeSummary`・`selectTagsBySakeIds`・
+>   `buildTagAndFilters`）と埋め込みアダプタ（`embedText`）のみ。埋め込み関数は `EmbedQueryFn` で注入し、
+>   テストはダミーのクエリベクトルを差し込む（実 API を叩かない。TEST_PHILOSOPHY）。generator（streamText）は
+>   T14 の `/api/chat` の責務。
 > - **ハイブリッド統合＝タグはハード SQL 絞り込み・ベクタはソフトなランキング**（DESIGN §2.6・
->   FEASIBILITY R3）: タグ/都道府県/価格帯を EXISTS/JOIN（`searchSakes` と同型）で母集団を絞り、
->   その中を pgvector コサイン距離（`cosineDistance` = `<=>`, HNSW `vector_cosine_ops`）の近い順で並べる。
->   統合スコアは **加重和**（RRF ではなく）: `combineScore = VECTOR_WEIGHT(0.7)×(1-cosine距離) +
->   TAG_WEIGHT(0.3)×タグ一致率`（純関数・定数化）。RRF を採らないのは、タグは「持つ/持たない」の
->   ブール filter でランク列がなく順位融合に馴染まない一方、ベクタは連続スコアで、両者の役割
->   （絞り込み vs 順位付け）が非対称なため。重みの初期値 0.7/0.3 は小規模 DB でタグ絞り込み後の意味的
->   近さを主シグナルにする暫定値で、確定は T13 PoC（DESIGN §9）。
+>   FEASIBILITY R3）: タグ/都道府県/価格帯を EXISTS/JOIN で母集団を絞り、その中を pgvector コサイン距離
+>   （`cosineDistance` = `<=>`, HNSW `vector_cosine_ops`）の近い順で並べる。統合スコアは **加重和**（RRF では
+>   なく）: `combineScore = VECTOR_WEIGHT(0.7)×max(0, 1-cosine距離) + TAG_WEIGHT(0.3)×タグ一致率`（純関数・
+>   定数化）。RRF を採らないのは、タグは「持つ/持たない」のブール filter でランク列がなく順位融合に馴染まない
+>   一方、ベクタは連続スコアで、両者の役割（絞り込み vs 順位付け）が非対称なため。重みの初期値 0.7/0.3 は暫定値で、
+>   確定は T13 PoC（DESIGN §9）。
+> - **ベクタ類似度は下限 0 にクランプ（レビュー CODE S-1 修正）**: cosine 距離は 0..2 で `1-距離` は 1..-1 に
+>   なり得る。負（逆向き＝無関係）をそのまま使うとタグ同一一致でも「埋め込み有り（逆向き）」が「埋め込み無し
+>   （null=0 扱い）」より下に沈み順位が逆転する。`max(0, 1-距離)` で 0 にクランプして防ぐ（回帰テスト追加）。
 > - **埋め込みが無い銘柄を落とさない**: `sake_embeddings` を **LEFT JOIN** し、未登録銘柄は距離 NULL＝
 >   `vectorSimilarity=null` として母集団に残す。ベクタ成分 0 でもタグ成分だけで順位が付くため、
 >   ベクタ検索に出ない銘柄をタグ検索で拾える（テストで担保）。
-> - **役割分担（③抽出の範囲）**: ヒアリング回答→検索条件への高度な変換は LLM=T14 の searchSake ツールが
->   行う（DESIGN §2.6・D8）。retriever は「渡された条件＋クエリ文字列（freeText）」で動く最小限のみ担う。
->   `extract-conditions.ts` は LLM 不在でも動く保険として、既知タグ名・都道府県名の**素直な部分一致**だけを
->   拾う純関数（形態素解析はしない。DB のタグ一覧を引数で受け DB を知らない）。
+> - **役割分担（③抽出の範囲）**: ヒアリング回答→検索条件への変換は LLM=T14 の searchSake ツールが行う
+>   （DESIGN §2.6・D8）。retriever は「渡された条件（tagNames/prefectureCode/priceRange）＋ freeText」で動く
+>   最小限のみ担い、自然文からの抽出には依存しない。当初の `extract-conditions.ts`（部分一致抽出の純関数）は
+>   DIRECTORY_STRUCTURE のツリー・DESIGN §5.3 に無く未使用（YAGNI）だったため削除した。必要になった時点で追加する。
+> - **タグ AND-EXISTS の共通化（レビュー CODE S-4 修正）**: retriever の buildFilters と searchSakes のタグ
+>   AND-EXISTS が同型で Rule of Three の 3 箇所目に達したため、`buildTagAndFilters(db, tagNames, aliasPrefix)`
+>   を `src/lib/db/queries/sakes.ts` に切り出し両者から使う（alias 接頭辞のみ引数）。挙動一致は searchSakes の
+>   タグ AND テスト・retriever のタグ絞り込みテストで担保。推薦の EXISTS は IN の OR で意味が違うため対象外。
 > - **捏造防止 validateProposedSakeIds（DESIGN §2.6 二段目 / §5.3）**: LLM が structured output で返した
->   ID 配列を受け、UUID v4 書式（`isValidSakeId` 再利用）で不正値を DB 前に弾き、重複を畳み、`inArray` で
->   実在銘柄のみを取得。**返す順序は入力 ids の順（LLM の提案順＝提示優先順）を保ち**、存在しない ID は
->   スキップして詰める。返り値は `SakeSummary`（詳細リンク用 id＋タグ一括取得でカード即描画）。これが T14 の
->   「DB に無い銘柄を提案しない」を担保する要。
+>   ID 配列を受け、先頭 `MAX_PROPOSED_IDS`(16) 件に切り（巨大 IN の DoS 防御。レビュー SEC S-1）、UUID v4 書式
+>   （`isValidSakeId` 再利用）で不正値を DB 前に弾き、重複を畳み、`inArray` で実在銘柄のみを取得。**返す順序は
+>   入力 ids の順（LLM の提案順＝提示優先順）を保ち**、存在しない ID はスキップして詰める。返り値は `SakeSummary`
+>   （詳細リンク用 id＋タグ一括取得でカード即描画）。これが T14 の「DB に無い銘柄を提案しない」を担保する要。
+> - **安全上限の定数化（レビュー SEC S-2/S-3 修正）**: retriever は freeText を `MAX_FREE_TEXT_LENGTH`(1000) で
+>   切り詰めてから埋め込みに渡し（巨大テキストのコスト/エラー回避）、limit を `min(limit, CANDIDATE_POOL_SIZE)`
+>   でクランプする（上位層の値渡しミス耐性）。いずれも定数化。
 > - **公開エントリと注入の分離（embedSakes と同型）**: 公開は `retrieve(query)`／`validateProposedSakeIds(ids)`
 >   （本番 DB＋実 API）。テスト・PoC は下位の `retrieveSakeCandidates(db, embedQuery, query)`／
 >   `selectExistingSakes(db, ids)` を直接呼び PGlite とダミー埋め込みを差し込む。DESIGN §5.3 の
 >   シグネチャ注記も実装に合わせて更新。
 > - **母集団上限（自己 DoS 回避）**: `CANDIDATE_POOL_SIZE=100` でベクタ ORDER BY 上位のみメモリに載せ、
 >   `DEFAULT_CANDIDATE_LIMIT=8`（DESIGN §6.3: プロンプト候補は上位 8 件程度）で返す。`limit<=0` は埋め込みも
->   呼ばず即空配列。
-> - テストは純関数（`combineScore`: 加重和・埋め込み無しでタグ成分・要求タグ0・全0／抽出: タグ部分一致・
->   県名/基底名一致・順序・重複）＋ PGlite(+pgvector) 統合（ダミー埋め込み注入で近い銘柄が上位・タグ AND
->   絞り込み・埋め込み無し銘柄をタグで拾う・都道府県/価格帯絞り込み・上位 N・limit0 で埋め込み非呼び出し・
->   freeText 無しで人気順・0 件・実在 ID のみ／validate: 実在のみ通す・入力順保持・不正 UUID/SQL 断片を破棄・
->   重複畳み・空・タグ付き）で実施（全 339 テスト。lint / typecheck / format:check / build グリーン。
->   T11 の 309 から +30）。
+>   呼ばず即空配列。現状は「ハード絞り込み後の母集団を距離順で pool 件切り出し」の前提（コメントで明示）で、
+>   厳密な「距離上位 N ∪ タグ一致」への変更は下記 B-1 として T13 へ移管。
+> - **性能 B-1（HNSW を活かす ANN/タグ経路分離）を T13 へ移管**: 現行の `CASE + LEFT JOIN + 複合 ORDER BY` は
+>   HNSW index が効かず全件距離計算になり得る。ただしインデックス使用可否は PGlite では確認できず実 Postgres の
+>   EXPLAIN が要り、retriever のクエリ形状チューニングは T13（RAG 精度 PoC）の主目的そのもの。よって
+>   「ANN 経路（sake_embeddings 起点の素の `<=>` ORDER BY LIMIT）とタグ経路の分離」は T13 に移管する
+>   （黙った先送りにしない。レビュー PERF B-1）。本ブランチでは検証可能・安価な正しさ/セキュリティ/保守性の
+>   修正のみ入れた。
+> - テストは純関数（`combineScore`: 加重和・埋め込み無しでタグ成分・要求タグ0・全0）＋ PGlite(+pgvector) 統合
+>   （ダミー埋め込み注入で近い銘柄が上位・タグ AND 絞り込み・埋め込み無し銘柄をタグで拾う・都道府県/価格帯
+>   絞り込み・上位 N・limit0 で埋め込み非呼び出し・freeText 無しで人気順・0 件・実在 ID のみ・逆向き埋め込みの
+>   クランプ・limit クランプ・freeText 切り詰め／validate: 実在のみ通す・入力順保持・不正 UUID/SQL 断片を破棄・
+>   重複畳み・空・タグ付き・MAX_PROPOSED_IDS 上限）で実施（全 334 テスト。lint / typecheck / format:check /
+>   build グリーン）。
 > - **残作業**: 実 API（AI Gateway で text-embedding-3-small のクエリ埋め込み）＋実データ（Supabase・
->   投入済み埋め込み）での日本語検索精度・retriever 重みの確定は T13 PoC。E2E は T16。
+>   投入済み埋め込み）での日本語検索精度・retriever 重みの確定・上記 B-1 のクエリ形状分離は T13 PoC。E2E は T16。
 
 ### T13: RAG 精度 PoC（FEASIBILITY R3/R4）
 
 | 項目 | 内容 |
 |---|---|
 | 概要 | 銘柄 50 件×質問 10 パターンで「埋め込み検索の精度」と「ヒアリング→検索条件変換の品質」「structured output＋ID 検証による捏造防止」を検証し、retriever の重み・プロンプト方針を確定する |
-| 主な作業内容 | ① 質問 10 パターンと期待銘柄の評価セット作成 ② retriever 単体の精度計測（意図した銘柄が上位に来るか）③ Claude Haiku 4.5 ＋ `searchSake`/`proposeSake` ツール案でヒアリング→条件変換→提案の 1 往復を試行し、捏造が ID 検証で落ちることを確認 ④ 結果と調整（retriever の重み・`src/lib/ai/prompts.ts` の初版システムプロンプト）を `docs/FEASIBILITY.md` 追記または `docs/` 配下の PoC 記録として残す ⑤ 検証スクリプトは使い捨てとし `main` のビルド対象に含めない |
+| 主な作業内容 | ① 質問 10 パターンと期待銘柄の評価セット作成 ② retriever 単体の精度計測（意図した銘柄が上位に来るか）③ Claude Haiku 4.5 ＋ `searchSake`/`proposeSake` ツール案でヒアリング→条件変換→提案の 1 往復を試行し、捏造が ID 検証で落ちることを確認 ④ 結果と調整（retriever の重み・`src/lib/ai/prompts.ts` の初版システムプロンプト）を `docs/FEASIBILITY.md` 追記または `docs/` 配下の PoC 記録として残す ⑤ 検証スクリプトは使い捨てとし `main` のビルド対象に含めない ⑥ **retriever のクエリ形状チューニング（T12 レビュー PERF B-1 の移管）**: 実 Postgres の EXPLAIN で現行の `CASE + LEFT JOIN + 複合 ORDER BY` が HNSW を使えているか計測し、必要なら「ANN 経路（`sake_embeddings` 起点の素の `<=>` ORDER BY LIMIT で近傍を取る）とタグ経路（タグ SQL 絞り込み）を分離して統合」へ変更する。分離しても retriever の公開シグネチャ（`retrieve(query)`）と戻り値 `SakeCandidate[]` は変えない |
 | 受け入れ条件 | FR-08（品質リスク R3/R4 の解消。受け入れ条件を満たせる見込みの確定） |
 | 依存タスク | T12 |
 | ブランチ | `feature/T13-rag-poc` |
