@@ -7,8 +7,7 @@ import type { SakeSummary } from "@/lib/db/queries/sakes";
 // 一覧取得クエリは PGlite 統合テスト（sakes.test.ts）で担保済み。
 // ここでは DB 接続を避け、表示ロジック・空状態・notFound() 分岐だけを検証する。
 const { getSakesByPrefecture } = vi.hoisted(() => ({
-  getSakesByPrefecture:
-    vi.fn<(code: string) => Promise<SakeSummary[]>>(),
+  getSakesByPrefecture: vi.fn<(code: string) => Promise<SakeSummary[]>>(),
 }));
 vi.mock("@/lib/db/queries/sakes", () => ({ getSakesByPrefecture }));
 

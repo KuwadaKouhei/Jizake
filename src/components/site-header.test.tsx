@@ -26,16 +26,29 @@ describe("SiteHeader", () => {
     expect(home.getAttribute("href")).toBe("/");
   });
 
-  it("未実装機能への導線を出さない（TASKS 運用ルール: リンクはホームのみ）", () => {
+  it("実装済みの都道府県別一覧（/prefectures）への導線がある（T06）", () => {
     render(<SiteHeader />);
 
+    const nav = screen.getByRole("navigation", {
+      name: "メインナビゲーション",
+    });
+    const prefectures = within(nav).getByRole("link", { name: "地酒を探す" });
+
+    expect(prefectures.getAttribute("href")).toBe("/prefectures");
+  });
+
+  it("未実装機能への導線を出さない（TASKS 運用ルール: 許可リストのみ）", () => {
+    render(<SiteHeader />);
+
+    // 実装済みで導線を出してよいのはホームと都道府県別一覧のみ（T06 時点）。
+    const allowed = new Set(["/", "/prefectures"]);
     const hrefs = screen
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
 
     expect(hrefs.length).toBeGreaterThan(0);
     for (const href of hrefs) {
-      expect(href).toBe("/");
+      expect(allowed.has(href ?? "")).toBe(true);
     }
   });
 });
