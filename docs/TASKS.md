@@ -340,6 +340,25 @@
 >   グリーン。T09 の 254 から +28）。
 > - **残作業**: 実際の認証済みユーザーでの推薦（実履歴データ）は Supabase 実プロジェクトが要る（T02 残作業）。
 >   ロジックは PGlite＋モックで検証済み。E2E は T16。重み・減衰の実データでのチューニングは稼働後（DESIGN §9）。
+>
+> レビュー対応（2026-07-04・4 ペルソナ Should/Consider 反映）:
+> - **候補母集団の上限（PERF/SEC S-1）**: `RuleBasedConfig` に `candidatePoolSize`(200)・`maxProfileTags`(30) を
+>   追加。候補取得 SQL を人気順（`popularity_rank asc nulls last` → id）で上位 candidatePoolSize 件に切ってから
+>   メモリでスコアリングし、汎用タグ持ちヘビーユーザーでの自己 DoS を防ぐ。プロファイルは
+>   `truncateProfileTags`（scoring.ts の純関数）で重み上位 K 件に絞ってから IN に渡す。
+> - **全期間の既視除外（CODE S-1）**: 嗜好集計用の履歴取得（`collectHistory`・直近 recentHistoryLimit 件）と、
+>   除外用の閲覧済み ID 集合（`selectViewedSakeIds`・全期間 distinct・`excludeIdCap`(5000) 上限）を分離。100 件超の
+>   ユーザーでも既視銘柄が推薦に混入しない（「ホームは新規発見」の不変条件を全期間で担保）。
+> - **フォールバックの件数充足（CODE S-2）**: `selectPopular` の母集団取得を `limit(max(poolSize, limit))` にし、
+>   limit > poolSize でも件数不足にならない不変条件を保証。
+> - **単一 SQL 記述の乖離解消（PHIL S-1）**: DESIGN §2.5/§4.2 を「複数クエリ（履歴集計・候補絞り込み・タグ一括・
+>   人気補完）＋スコア計算の純関数」に更新（selectTagsBySakeIds 再利用・候補 SQL 事前絞りのため分割）。
+> - **ホーム見出しの実態整合（PHIL S-2）**: ログイン済みでも中身が全て popular（履歴しきい値未満）なら見出しを
+>   「人気の日本酒」に倒す（`recommendations.some(reason.kind==="history")` で判定）。
+> - **Consider**: 公開 IF `recommend()` で limit を `min(max(0,limit), 50)` にクランプ（SEC C-1）。コールドスタート
+>   （`fallbackOnly`）にも閲覧済み ID を渡して既視除外（CODE C-1）。
+> - 追加テスト: `truncateProfileTags` 純関数、候補上限で母集団が切られる・全期間の既視除外（直近取得上限超）・
+>   limit>poolSize の件数充足の PGlite 回帰（全 290 テスト。lint / typecheck / format:check / build グリーン）。
 
 ### T11: 埋め込みパイプライン
 
