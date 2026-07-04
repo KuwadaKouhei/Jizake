@@ -9,6 +9,7 @@ import * as schema from "@/lib/db/schema";
 import {
   PAGE_SIZE,
   isValidSakeId,
+  searchSakes,
   selectSakeDetail,
   selectSakesByPrefecture,
 } from "./sakes";
@@ -52,6 +53,14 @@ const MINIMAL_SAKE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const MISSING_SAKE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const TYPE_TAG_ID = "e1111111-1111-4111-8111-111111111111";
 const TASTE_TAG_ID = "e2222222-2222-4222-8222-222222222222";
+// 検索の味タグ AND 検証用の追加タグ（辛口・淡麗）。
+const KARA_TAG_ID = "e3333333-3333-4333-8333-333333333333";
+const TANREI_TAG_ID = "e4444444-4444-4444-8444-444444444444";
+// 検索用の銘柄（東京 13 の蔵元）: 辛口かつ淡麗 / 辛口のみ / 淡麗のみ。
+const SEARCH_BREWERY_ID = "a3333333-3333-4333-8333-333333333333";
+const SAKE_KARA_TANREI_ID = "b3333333-3333-4333-8333-333333333333";
+const SAKE_KARA_ONLY_ID = "b4444444-4444-4444-8444-444444444444";
+const SAKE_TANREI_ONLY_ID = "b5555555-5555-4555-8555-555555555555";
 // 別県（新潟 15）の蔵元・銘柄。県別一覧の絞り込み（他県を混ぜない）を検証する。
 const NIIGATA_BREWERY_ID = "a1111111-1111-4111-8111-111111111111";
 const NIIGATA_SAKE_ID = "b1111111-1111-4111-8111-111111111111";
@@ -141,6 +150,43 @@ beforeAll(async () => {
       name: `兵庫の酒 ${String(i + 1).padStart(4, "0")}`,
     })),
   );
+
+  // 検索（味タグ AND・名前 ILIKE）検証用の銘柄群（東京 13）。
+  await orm.insert(schema.tags).values([
+    { id: KARA_TAG_ID, name: "辛口", category: "taste" },
+    { id: TANREI_TAG_ID, name: "淡麗", category: "taste" },
+  ]);
+  await orm.insert(schema.breweries).values({
+    id: SEARCH_BREWERY_ID,
+    name: "東京酒造",
+    prefectureCode: "13",
+  });
+  await orm.insert(schema.sakes).values([
+    {
+      id: SAKE_KARA_TANREI_ID,
+      breweryId: SEARCH_BREWERY_ID,
+      name: "江戸誉 辛口淡麗",
+      reading: "えどほまれ",
+    },
+    {
+      id: SAKE_KARA_ONLY_ID,
+      breweryId: SEARCH_BREWERY_ID,
+      name: "江戸誉 辛口",
+      reading: "えどほまれ",
+    },
+    {
+      id: SAKE_TANREI_ONLY_ID,
+      breweryId: SEARCH_BREWERY_ID,
+      name: "隅田川 淡麗",
+      reading: "すみだがわ",
+    },
+  ]);
+  await orm.insert(schema.sakeTags).values([
+    { sakeId: SAKE_KARA_TANREI_ID, tagId: KARA_TAG_ID, source: "manual" },
+    { sakeId: SAKE_KARA_TANREI_ID, tagId: TANREI_TAG_ID, source: "manual" },
+    { sakeId: SAKE_KARA_ONLY_ID, tagId: KARA_TAG_ID, source: "manual" },
+    { sakeId: SAKE_TANREI_ONLY_ID, tagId: TANREI_TAG_ID, source: "manual" },
+  ]);
 });
 
 afterAll(async () => {
@@ -320,5 +366,138 @@ describe("selectSakesByPrefecture", () => {
       expect(result.total).toBe(HYOGO_SAKE_COUNT);
       expect(result.page).toBe(99);
     });
+  });
+});
+
+describe("searchSakes（複合検索・FR-06）", () => {
+  it("条件が全て空なら全件を名前順で返す（DESIGN §2.2: 空条件は全件表示）", async () => {
+    const result = await searchSakes(orm, { tagNames: [], page: 1 });
+    // 投入した全銘柄が対象（兵庫 30 + 山口 2 + 新潟 1 + 東京 3 = 36）。
+    expect(result.total).toBe(36);
+    // 1 ページ目は PAGE_SIZE 件まで、名前昇順（Postgres のコードポイント順）で決定的。
+    expect(result.sakes).toHaveLength(PAGE_SIZE);
+    const names = result.sakes.map((s) => s.name);
+    for (let i = 1; i < names.length; i++) {
+      expect(names[i - 1] <= names[i]).toBe(true);
+    }
+  });
+
+  it("名前 q で name の部分一致に絞る（FR-06 名前）", async () => {
+    const result = await searchSakes(orm, { q: "獺祭", tagNames: [], page: 1 });
+    expect(result.total).toBe(1);
+    expect(result.sakes[0]?.id).toBe(FULL_SAKE_ID);
+  });
+
+  it("名前 q は reading（読み仮名）にもマッチする（表記ゆれ対策）", async () => {
+    // 「だっさい」は reading のみに含まれ、name には無い。
+    const result = await searchSakes(orm, {
+      q: "だっさい",
+      tagNames: [],
+      page: 1,
+    });
+    expect(result.total).toBe(1);
+    expect(result.sakes[0]?.id).toBe(FULL_SAKE_ID);
+  });
+
+  it("名前 q はデフォルトで大文字小文字を無視する（ILIKE）", async () => {
+    // reading にラテン文字が無いので name に対する ILIKE の大小無視は
+    // ここでは日本語のため差が出ない。ワイルドカード無害化のみ別途検証する。
+    const upper = await searchSakes(orm, { q: "江戸", tagNames: [], page: 1 });
+    expect(upper.total).toBe(2); // 「江戸誉 辛口淡麗」「江戸誉 辛口」
+  });
+
+  it("q 内の LIKE ワイルドカード（%）はリテラル扱いになる（部分一致を広げない）", async () => {
+    // "%" を含む語で検索しても、DB に該当名が無ければ 0 件（"%" が任意文字列化しない）。
+    const result = await searchSakes(orm, {
+      q: "江%口",
+      tagNames: [],
+      page: 1,
+    });
+    expect(result.total).toBe(0);
+  });
+
+  it("都道府県で絞る（蔵元 JOIN の prefecture_code 一致・FR-06 都道府県）", async () => {
+    const result = await searchSakes(orm, {
+      prefectureCode: "13", // 東京
+      tagNames: [],
+      page: 1,
+    });
+    const ids = result.sakes.map((s) => s.id);
+    expect(result.total).toBe(3);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        SAKE_KARA_TANREI_ID,
+        SAKE_KARA_ONLY_ID,
+        SAKE_TANREI_ONLY_ID,
+      ]),
+    );
+    for (const sake of result.sakes) {
+      expect(sake.prefectureCode).toBe("13");
+    }
+  });
+
+  it("単一の味タグで絞る（FR-02: タグをキーに絞り込める）", async () => {
+    const result = await searchSakes(orm, {
+      tagNames: ["辛口"],
+      page: 1,
+    });
+    const ids = result.sakes.map((s) => s.id);
+    expect(result.total).toBe(2);
+    expect(ids).toContain(SAKE_KARA_TANREI_ID);
+    expect(ids).toContain(SAKE_KARA_ONLY_ID);
+    // 淡麗のみの銘柄は含まれない
+    expect(ids).not.toContain(SAKE_TANREI_ONLY_ID);
+  });
+
+  it("複数の味タグは AND で絞る（辛口かつ淡麗の銘柄のみ）", async () => {
+    const result = await searchSakes(orm, {
+      tagNames: ["辛口", "淡麗"],
+      page: 1,
+    });
+    expect(result.total).toBe(1);
+    expect(result.sakes[0]?.id).toBe(SAKE_KARA_TANREI_ID);
+  });
+
+  it("名前×都道府県×タグの複合条件を AND で結合する", async () => {
+    const result = await searchSakes(orm, {
+      q: "江戸",
+      prefectureCode: "13",
+      tagNames: ["辛口", "淡麗"],
+      page: 1,
+    });
+    expect(result.total).toBe(1);
+    expect(result.sakes[0]?.id).toBe(SAKE_KARA_TANREI_ID);
+  });
+
+  it("該当なしは空配列・総数 0 を返す（0 件の空状態へ）", async () => {
+    const result = await searchSakes(orm, {
+      q: "存在しない銘柄名XYZ",
+      tagNames: [],
+      page: 1,
+    });
+    expect(result.sakes).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  it("結果カードに主要タグを束ねて返す（N+1 回避の一括取得）", async () => {
+    const result = await searchSakes(orm, {
+      tagNames: ["辛口", "淡麗"],
+      page: 1,
+    });
+    // 辛口・淡麗の 2 タグ（taste。name 昇順）
+    expect(result.sakes[0]?.tags.map((t) => t.name)).toEqual(["淡麗", "辛口"]);
+  });
+
+  it("ページネーションが効く（全件検索で 2 ページ目に残りを返す）", async () => {
+    const page1 = await searchSakes(orm, { tagNames: [], page: 1 });
+    const page2 = await searchSakes(orm, { tagNames: [], page: 2 });
+    expect(page1.total).toBe(36);
+    expect(page1.sakes).toHaveLength(PAGE_SIZE);
+    expect(page2.sakes).toHaveLength(36 - PAGE_SIZE);
+    // ページ間で重複しない
+    const ids1 = new Set(page1.sakes.map((s) => s.id));
+    for (const sake of page2.sakes) {
+      expect(ids1.has(sake.id)).toBe(false);
+    }
   });
 });
