@@ -15,6 +15,13 @@ const { getSearchSakes, getTasteTagOptions } = vi.hoisted(() => ({
 vi.mock("@/lib/db/queries/sakes", () => ({ getSearchSakes, PAGE_SIZE: 24 }));
 vi.mock("@/lib/db/queries/tags", () => ({ getTasteTagOptions }));
 
+// 検索記録トリガ（Client Component）は Server Action → DB へ至るチェーンを持つため、
+// ページ表示検証ではモックで無効化する（Vitest が "use server" 境界を尊重せず
+// client.ts のサーバ専用ガードに触れるのを避ける。記録は record-search.test.ts で検証）。
+vi.mock("./_components/record-search-trigger", () => ({
+  RecordSearchTrigger: () => null,
+}));
+
 class RedirectError extends Error {
   constructor(public url: string) {
     super(`NEXT_REDIRECT:${url}`);
