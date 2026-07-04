@@ -11,8 +11,18 @@ import { z } from "zod";
 import { CHAT_MODEL_ID } from "@/lib/ai/models";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 
+import {
+  exceedsConversationLimit,
+  TURN_LIMIT_MESSAGE,
+} from "./_lib/conversation-guard";
+import { buildFallbackSearchHref } from "./_lib/fallback-search";
+import { isChatRateLimited, RATE_LIMIT_MESSAGE } from "./_lib/rate-limit";
 import { stripAssistantDataParts } from "./_lib/strip-data-parts";
-import { type ChatUIMessage, createChatTools } from "./_lib/tools";
+import {
+  type ChatUIMessage,
+  createChatTools,
+  FALLBACK_DATA_TYPE,
+} from "./_lib/tools";
 
 /**
  * RAG チャットの唯一の Route Handler（DESIGN §5.1・§4.3・TASKS T14 ①）。
@@ -24,8 +34,15 @@ import { type ChatUIMessage, createChatTools } from "./_lib/tools";
  * これで LLM の自由文をカードにせず、ハルシネーション表示を構造的に防ぐ（DESIGN §6.2）。
  *
  * ステートレス設計（DESIGN §2.6・決定 D4）: 会話状態はクライアント（useChat）が保持し、
- * 毎リクエストで全履歴を送る。認証は不要（匿名でチャット可）。ログイン時の確定提案の
- * chat_sessions への保存は T15 のスコープ（本タスクは基本フロー＋捏造防止に集中）。
+ * 毎リクエストで全履歴を送る。認証は不要（匿名でチャット可）。
+ *
+ * 運用ガード（TASKS T15・DESIGN §6.3/§6.4）:
+ * - コスト上限（①）: 会話往復数上限（超過は LLM を呼ばず検索誘導を返す）・メッセージ長上限
+ *   （Zod）・maxOutputTokens。
+ * - レート制限（②）: ログインユーザーは 20 会話/日（chat_sessions の当日作成数）。匿名は対象外。
+ * - タイムアウト/フォールバック（③）: 30 秒の AbortSignal ＋ maxDuration。障害時はエラーパートに
+ *   加えヒアリング内容から組み立てた検索誘導（data-fallback）を送る。
+ * - セッション保存（④）: ログイン時の確定提案のみ chat_sessions/chat_messages へ保存（tools.ts 側）。
  *
  * 注意（DIRECTORY_STRUCTURE §5.2）: AI SDK（`ai`）の import はここと src/lib/ai のみに許可。
  * gateway プロバイダは AI_GATEWAY_API_KEY を実行時に参照するため、import・build では
@@ -35,14 +52,13 @@ import { type ChatUIMessage, createChatTools } from "./_lib/tools";
 // AI 呼び出しはリクエスト時に行うため動的レンダリング（キャッシュしない）。
 export const dynamic = "force-dynamic";
 
+// LLM 応答（ストリーミング＋ツール往復）の最大実行時間（秒）。タイムアウト（TIMEOUT_MS）より
+// 余裕を持たせ、関数自体が先に打ち切られないようにする（Vercel の maxDuration。DESIGN §6.4）。
+export const maxDuration = 60;
+
 // ---------------------------------------------------------------------------
-// 入力検証の安全上限（最低限の DoS ガード。T14 スコープ）
+// 入力検証・運用ガードの安全上限（T14 の最低限ガード＋T15 の運用ガード）
 // ---------------------------------------------------------------------------
-//
-// 会話往復数の詳細な上限・メッセージ長ごとの精緻なコスト上限・レート制限・
-// タイムアウト/フォールバック・chat_sessions 保存・maxDuration は T15
-// （チャット運用ガード）で扱う。ここでは巨大ペイロードを弾く最低限の上限と、
-// 出力トークンの有界化（S-2）だけを設ける（DESIGN §6.3 の一部を前倒し）。
 
 /** 1 リクエストで受け付けるメッセージ数の上限（往復の暴走・巨大配列を弾く）。 */
 const MAX_MESSAGES = 100;
@@ -58,6 +74,9 @@ const MAX_STEPS = 5;
 
 /** LLM 出力トークンの上限（出力側コスト DoS を有界化。S-2。DESIGN §6.3 の前倒し）。 */
 const MAX_OUTPUT_TOKENS = 1024;
+
+/** LLM 呼び出しのタイムアウト（ミリ秒。初期 30 秒。DESIGN §6.4）。 */
+const TIMEOUT_MS = 30_000;
 
 /**
  * リクエストボディの Zod スキーマ（useChat が送る UIMessage 配列を最低限検証する。
@@ -114,6 +133,18 @@ export async function POST(request: Request): Promise<Response> {
     parsed.data.messages as unknown as ChatUIMessage[],
   );
 
+  // コスト上限ガード①（DESIGN §6.3）: 会話が長くなりすぎたら LLM を呼ばず、検索誘導を返す。
+  // ステートレスで全履歴が来るため、往復数は user 発話数で判定する（conversation-guard の純関数）。
+  if (exceedsConversationLimit(messages)) {
+    return fallbackStreamResponse(TURN_LIMIT_MESSAGE, messages);
+  }
+
+  // レート制限②（DESIGN §6.3）: ログインユーザーは 20 会話/日。匿名は対象外（決定 D4/D5）。
+  // user_id はセッションから強制取得（isChatRateLimited が主防御。引数で受けない）。
+  if (await isChatRateLimited()) {
+    return fallbackStreamResponse(RATE_LIMIT_MESSAGE, messages);
+  }
+
   const stream = createUIMessageStream<ChatUIMessage>({
     execute: async ({ writer }) => {
       const result = streamText({
@@ -122,10 +153,26 @@ export async function POST(request: Request): Promise<Response> {
         messages: await convertToModelMessages(messages),
         // 出力トークンを有界化して出力側コスト DoS を防ぐ（S-2）。
         maxOutputTokens: MAX_OUTPUT_TOKENS,
+        // タイムアウト③（DESIGN §6.4）: 30 秒で LLM 呼び出しを中断する。中断は onError で
+        // ハンドリングし、UI にはフォールバック導線（下）が届く。
+        abortSignal: AbortSignal.timeout(TIMEOUT_MS),
         // proposeSake が検証済みカードを writer 経由でデータパートに載せる（捏造防止の要）。
-        tools: createChatTools({ writer }),
+        // messages を渡し、確定提案時に chat_sessions へ保存する（T15 ④・ログイン時のみ）。
+        tools: createChatTools({ writer, messages }),
         // searchSake→proposeSake のツール往復を許可（1 ステップでは提案まで到達しない）。
         stopWhen: stepCountIs(MAX_STEPS),
+        // タイムアウト/障害時③: エラーパートに加え、ヒアリング内容から組み立てた検索誘導を送る。
+        // ユーザーが手ぶらにならないようにする（retriever・カタログ・検索は LLM 非依存で生存）。
+        onError() {
+          writer.write({
+            type: FALLBACK_DATA_TYPE,
+            data: {
+              message:
+                "ただいまチャットが混み合っています。以下の検索から日本酒をお探しいただけます。",
+              searchHref: buildFallbackSearchHref(messages),
+            },
+          });
+        },
       });
       // LLM のテキスト・ツール往復のストリームを、writer が書く data part と統合する。
       writer.merge(result.toUIMessageStream());
@@ -144,5 +191,28 @@ export async function POST(request: Request): Promise<Response> {
     },
   });
 
+  return createUIMessageStreamResponse({ stream });
+}
+
+/**
+ * LLM を呼ばずにフォールバック導線だけを 1 パート送るストリーム応答を作る
+ * （コスト上限超過①・レート制限超過②）。
+ *
+ * LLM を一切呼ばないことでコストの暴走を止めつつ、ユーザーには誘導文言＋検索 URL を届けて
+ * 手ぶらにしない（DESIGN §6.3/§6.4）。searchHref は必ず内部の /search 始まり（オープン
+ * リダイレクトなし）。UI は data-fallback パートを検知して誘導カードを描画する。
+ */
+function fallbackStreamResponse(
+  message: string,
+  messages: readonly ChatUIMessage[],
+): Response {
+  const stream = createUIMessageStream<ChatUIMessage>({
+    execute: ({ writer }) => {
+      writer.write({
+        type: FALLBACK_DATA_TYPE,
+        data: { message, searchHref: buildFallbackSearchHref(messages) },
+      });
+    },
+  });
   return createUIMessageStreamResponse({ stream });
 }
