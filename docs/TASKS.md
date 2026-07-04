@@ -83,7 +83,7 @@
 | 受け入れ条件 | FR-01（名称・蔵元・都道府県・説明文の充足、再実行可能な投入手順） |
 | 依存タスク | T02（T03 と並行可） |
 | ブランチ | `feature/T04-seed-data` |
-| 状態 | レビュー中 |
+| 状態 | 完了 |
 
 > 実施メモ（2026-07-04）: ①〜④完了。`seed-data/sakes.ts` に主要銘柄 76 件（獺祭・久保田・
 > 八海山・十四代・而今・新政・田酒・黒龍・飛露喜・鍋島 等、全 47 都道府県）を自作説明文つきで整備
@@ -106,7 +106,22 @@
 | 受け入れ条件 | FR-01（詳細が取得・表示できる）、FR-02（詳細でタグ一覧表示）、FR-03（全条件） |
 | 依存タスク | T03, T04（表示する実データ） |
 | ブランチ | `feature/T05-sake-detail` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ①〜⑤完了。① `src/lib/db/queries/sakes.ts` に
+> `getSakeDetail`（公開）/`selectSakeDetail`（db 注入・テスト用）を追加し、
+> `SakeSummary`/`SakeDetail`/`FlavorChart`/`SakeTagSummary` 型を定義（銘柄＋蔵元 INNER JOIN、
+> タグは category→name 順）。id は UUID 書式検証で不正値を DB 問い合わせ前に弾き 404 化。
+> ② `src/app/sake/[id]/page.tsx` は RSC 直接クエリ・`revalidate=3600`・`generateMetadata` で
+> 銘柄名タイトル。③ `_components/`（タグ一覧・説明〔whitespace-pre-line で改行保持のテキスト描画〕・
+> フレーバー6軸バー・外部リンク）＋ `_lib/external-links.ts`（純関数。official/rakuten は欠損非表示、
+> amazon は欠損時に銘柄名から検索 URL 生成、https 限定の防御的多重化）。外部リンクは
+> `target="_blank" rel="noopener noreferrer"`。④ `src/components/sake-card.tsx`（共有カード。詳細へ Link）。
+> ⑤ 存在しない/不正 id は `notFound()`。REVIEW T03/T04 引き継ぎ（外部入力の生 HTML 描画禁止・
+> https 外部リンク）をコンポーネントとテストで担保。
+> テストは PGlite（クエリ結合・NULL 可カラム・存在しない id）＋ RTL 相当の SSR 出力検証
+> （カード・外部リンクの target/rel・ページの notFound 分岐・メタデータ）で実施（全 105 テストグリーン）。
+> トップ/ヘッダーからの到達導線は未実装機能を出さない運用ルールに従い未追加（T06/T07/T10 で接続）。
 
 ### T06: 都道府県別地酒一覧
 
