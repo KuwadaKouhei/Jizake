@@ -147,6 +147,14 @@ npm run rag:poc
 **ダミー埋め込みでの指標の絶対値は無意味**（意味空間を再現しない）。本 PoC で確立したのは
 「ハーネスが動く・指標が計算される・実キーでの実行手順」であり、精度の絶対値の確定は上記 2・3 で行う。
 
+**運用上の注意（REVIEW T13 セキュリティ Consider）**:
+- `npm run rag:poc` は `DATABASE_URL` の DB に読み取りクエリを流す。**本番 DB を誤って指さない**よう、
+  評価用 DB を明示指定して実行する（起動ログに接続先を確認する運用を推奨）。
+- `fabrication-guard.test.ts` の `proposeSakeSchema` は PoC 用の雛形。T14 で `api/chat/_lib/tools.ts` に
+  本番 structured output スキーマを確定したら、この E2E を本番スキーマの import に差し替える（境界のズレ防止）。
+- `scripts/lib/rag-eval/` は使い捨て資産。実キー投入後に本 PoC の役目を終えたら、`fake-embedding.ts` を含め
+  ハーネス一式は撤去してよい（恒久資産は `src/lib/ai/prompts.ts` のみ）。
+
 ---
 
 ## 7. 検証スクリプトの隔離（⑤）
@@ -224,10 +232,18 @@ LIMIT 100;
 --       件数が少ないと planner が Seq Scan を選ぶため、実データ規模（数千件）で確認する。
 ```
 
+- **3 形状で個別に確認する**（フィルタの選択率が下がると planner が HNSW を捨てやすいため。REVIEW T13 PERF S-1）:
+  1. フィルタ無し（純粋な意味検索。※この経路はタグ経路を省く＝PERF S-2 実装済み）
+  2. 都道府県フィルタ有り（`AND b.prefecture_code = $2`）
+  3. タグ EXISTS 有り（`AND EXISTS (... sake_tags ...)`）
+  各形状で `Index Scan using sake_embeddings_embedding_idx`（HNSW）が残るかを個別に見る。
 - 確認観点: (a) ANN 経路が `Index Scan ... hnsw` になる、(b) フィルタ AND を足しても近傍探索が壊れない、
   (c) 実測レイテンシが分離前より悪化しない。
-- 効いていない場合の対処: `SET hnsw.ef_search` の調整、フィルタの一部を後段（和集合後のメモリ絞り込み）へ回す、
-  など。いずれも retriever の公開シグネチャは変えず内部で吸収する。
+- 効いていない場合の対処（フォールバック設計。公開シグネチャは不変で内部吸収）:
+  - `SET hnsw.ef_search` の調整。
+  - フィルタ有り形状で HNSW が外れる場合は、ANN 経路を `sake_embeddings` **単独**（JOIN 無し）で
+    `ORDER BY embedding <=> $vec LIMIT k` の純 top-k とし、都道府県/価格帯/タグのハードフィルタは
+    和集合後のメモリ側 or 別クエリで適用する（index を最優先で活かす形へ）。
 
 ---
 

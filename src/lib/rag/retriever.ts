@@ -299,8 +299,14 @@ async function loadCandidateSakes(
  *      ANN 経路の距離をベクタ類似度成分にし、統合スコア（combineScore）を計算する。
  *   5. スコア降順（同点は距離→人気→名前→id の安定順）で上位 limit 件を返す。
  *
- * この分離により機能は分離前と等価（同じ候補・同じ順位）で、公開シグネチャ
- * retrieve(query) と戻り値 SakeCandidate[] は不変（REVIEW T12 B-1 の制約）。
+ * ハード絞り込み条件（タグ・都道府県・価格帯）が無く freeText だけのとき（＝純粋な
+ * 意味検索）は、タグ経路が返す人気順の母集団は上位スコアに寄与しないため取得を省く
+ * （母集団を最大 pool×2 → pool に半減。REVIEW T13 PERF S-2）。この場合、埋め込みが無い
+ * 銘柄は候補に入らない（絞り込む理由が無い意味検索では埋め込み有り銘柄のみを返す）。
+ *
+ * 上位 limit 件は距離で決まり分離前と等価。候補が limit 件に満たない場合の下位の顔ぶれは、
+ * 母集団の取り方（和集合／ANN のみ）により分離前と変わり得る（RAG_POC.md §8.3）。
+ * 公開シグネチャ retrieve(query) と戻り値 SakeCandidate[] は不変（REVIEW T12 B-1 の制約）。
  * 返す候補は必ず実在の sakeId を含む（DESIGN §2.6 捏造防止の一段目）。
  */
 export async function retrieveSakeCandidates(
@@ -333,7 +339,10 @@ export async function retrieveSakeCandidates(
   }
 
   // タグ経路: 埋め込みの有無に依存せず母集団を取る（埋め込み無し銘柄もここで残る）。
-  const tagIds = await selectTagCandidates(db, where);
+  // ただしハード絞り込みが無く freeText のみ（純粋な意味検索）のときは、タグ経路の
+  // 人気順母集団が上位に寄与しないため取得を省く（母集団を半減。REVIEW T13 PERF S-2）。
+  const skipTagPath = where === undefined && hasFreeText;
+  const tagIds = skipTagPath ? [] : await selectTagCandidates(db, where);
 
   // 両経路の和集合（順序は問わない。最終順位はスコアで決める）。
   const idSet = new Set<string>([...distanceById.keys(), ...tagIds]);
@@ -415,9 +424,10 @@ type ScoredCandidate = {
 };
 
 /**
- * 候補の最終順位比較。スコア降順を主キーに、同点は分離前の母集団順
- * （距離昇順→人気昇順〔NULL 末尾〕→名前→id）で決める。ANN 経路に無い銘柄の距離は
- * +Infinity（末尾）、人気 NULL も末尾に落として決定性を保つ。
+ * 候補の最終順位比較。スコア降順を主キーに、同点は距離昇順→人気昇順〔NULL 末尾〕→
+ * 名前→id で決める。ANN 経路に無い銘柄の距離は +Infinity（末尾）、人気 NULL も末尾。
+ * 最終的に id（UUID）で必ず決着するため決定的。名前比較は表示上の安定性のための補助で、
+ * JS の localeCompare("ja") は Postgres の列照合順と厳密には一致しない（REVIEW T13 CODE S-1）。
  */
 function compareScored(a: ScoredCandidate, b: ScoredCandidate): number {
   if (b.candidate.score !== a.candidate.score) {

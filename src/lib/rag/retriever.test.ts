@@ -401,28 +401,25 @@ describe("retrieveSakeCandidates（ハイブリッド検索）", () => {
 //   分離前と同じ結果になる」機能的等価を検証する（EXPLAIN 手順は docs/RAG_POC.md に記録）。
 // ---------------------------------------------------------------------------
 describe("ANN 経路 × タグ経路の分離（B-1・機能等価）", () => {
-  it("タグ未指定なら ANN 経路の近傍とタグ経路（全件）を和集合にし、近傍を上位に置く", async () => {
-    // タグ絞り込みが無い（要求タグ 0）とき、where はフィルタ無し。ANN 経路は近傍上位、
-    // タグ経路は全件（人気順）を取り、和集合に対しベクタ類似度でスコアを付ける。
-    // 分離前は「全件を距離順に並べて pool 切り」だったのと機能的に等価になる。
+  it("ハード絞り込み無し＋freeText のみ（純粋な意味検索）はタグ経路を省き ANN 近傍のみ返す（PERF S-2）", async () => {
+    // フィルタが無く freeText だけのとき、タグ経路の人気順母集団は上位に寄与しないため
+    // 取得を省く（母集団半減）。この場合、埋め込み無し銘柄は候補に入らない。
     const breweryId = await seedBrewery("旭酒造", "35");
     const near = await seedSake(breweryId, "近い酒");
     await seedEmbedding(near, oneHot(0)); // 距離 0（類似度 1）
     const far = await seedSake(breweryId, "遠い酒");
     await seedEmbedding(far, oneHot(1)); // 直交（類似度 0）
-    // 埋め込み無し銘柄も（ANN 経路には出ないが）タグ経路の全件で母集団に残る
-    const noEmbedding = await seedSake(breweryId, "埋め込み無し", {
-      popularityRank: 1,
-    });
+    // 埋め込み無し銘柄は ANN 経路に出ず、タグ経路も省くため候補に入らない
+    await seedSake(breweryId, "埋め込み無し", { popularityRank: 1 });
 
     const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
       freeText: "近い味",
     });
 
     const ids = result.map((r) => r.sake.id);
-    // 3 銘柄すべてが候補に残る（和集合＝ANN 近傍 ∪ タグ経路全件）
-    expect(new Set(ids)).toEqual(new Set([near, far, noEmbedding]));
-    // 近傍（類似度 1）が最上位。far/noEmbedding はともにベクタ成分 0 で同点だが決定順で並ぶ
+    // 埋め込み有りの 2 銘柄のみ（埋め込み無しは意味検索では拾わない）
+    expect(new Set(ids)).toEqual(new Set([near, far]));
+    // 近傍（類似度 1）が最上位
     expect(ids[0]).toBe(near);
   });
 

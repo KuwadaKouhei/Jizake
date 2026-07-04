@@ -38,6 +38,20 @@ beforeAll(async () => {
   await migrate(orm, { migrationsFolder: "drizzle" });
   // 実 seed-data を投入（評価は実在銘柄名で期待を表現し、ここで実 ID に解決される）
   await seedSakes(orm, SEED_SAKES);
+  // 全銘柄に決定的ダミー埋め込みを投入する。実運用（npm run embed）では全銘柄に埋め込みが
+  // 付く前提で、純粋な意味検索（freeText のみ）は ANN 経路で候補を返す。埋め込みが無いと
+  // フィルタ無し freeText 検索は候補 0 件になる（PERF S-2 でタグ経路を省くため）。
+  const sakes = await orm
+    .select({ id: schema.sakes.id, name: schema.sakes.name })
+    .from(schema.sakes);
+  await orm.insert(schema.sakeEmbeddings).values(
+    sakes.map((s) => ({
+      sakeId: s.id,
+      embedding: fakeEmbedText(s.name),
+      model: "fake/eval",
+      sourceHash: s.id,
+    })),
+  );
 }, 60_000);
 
 afterAll(async () => {
@@ -100,6 +114,8 @@ describe("評価ハーネスが end-to-end で動く（T13②）", () => {
     const targetId = rows.find((r) => r.name === targetName)?.id;
     expect(targetId).toBeDefined();
 
+    // beforeAll のダミー埋め込みを一旦消して、このテスト専用の理想埋め込みで置き換える。
+    await orm.delete(schema.sakeEmbeddings);
     // 対象銘柄の埋め込みだけ oneHot(0)、それ以外は oneHot(1) を投入
     const oneHot = (i: number) => {
       const v = Array.from({ length: 1536 }, () => 0);
