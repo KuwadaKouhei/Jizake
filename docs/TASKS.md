@@ -41,7 +41,16 @@
 | 受け入れ条件 | FR-01（DB 格納の受け皿）、非機能「履歴は本人のみ参照可能」（RLS 二段目） |
 | 依存タスク | T01 |
 | ブランチ | `feature/T02-db-schema` |
-| 状態 | 未着手 |
+| 状態 | レビュー中 |
+
+> 実施メモ（2026-07-04）: ②〜⑦完了。スキーマ検証は PGlite（インプロセス Postgres＋pgvector 拡張）で実施し、
+> マイグレーション一式の適用・制約・トリガ・RLS DDL を `src/lib/db/schema.test.ts` で確認済み
+> （auth スキーマ実体と RLS の実効遮断は Supabase 固有のためテスト対象外）。
+> **残作業（① の一部。Supabase 実プロジェクト未作成のため持ち越し）**:
+> 1. Supabase プロジェクト作成 → `.env.local` に接続情報を設定 → `npm run db:migrate` で適用
+>    （詳細手順は `.env.example` のコメント参照）
+> 2. GitHub Actions secret `DATABASE_URL` の登録（ping-supabase.yml 用。未登録の間は安全にスキップ）
+> 3. Vercel プロジェクト接続（T01 からの持ち越し。ダッシュボード操作が必要）
 
 ### T03: さけのわデータインポート
 
