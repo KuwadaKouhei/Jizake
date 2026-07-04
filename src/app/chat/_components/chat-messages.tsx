@@ -1,7 +1,9 @@
 import type { ChatStatus } from "ai";
+import Link from "next/link";
 
 import type {
   ChatUIMessage,
+  FallbackData,
   ProposedSakesData,
 } from "@/app/api/chat/_lib/tools";
 import { SakeCard } from "@/components/sake-card";
@@ -70,6 +72,15 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
       { type: "data-proposedSakes" }
     > => part.type === "data-proposedSakes",
   );
+  // フォールバック導線（コスト上限超過・LLM 障害時）。サーバが組んだ内部 /search リンクを持つ。
+  const fallbackParts = message.parts.filter(
+    (
+      part,
+    ): part is Extract<
+      ChatUIMessage["parts"][number],
+      { type: "data-fallback" }
+    > => part.type === "data-fallback",
+  );
 
   const text = textParts.map((part) => part.text).join("");
 
@@ -93,6 +104,34 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
           sakes={part.data.sakes}
         />
       ))}
+
+      {fallbackParts.map((part, index) => (
+        <FallbackNotice
+          key={`fallback-${index}`}
+          message={part.data.message}
+          searchHref={part.data.searchHref}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * コスト上限超過・LLM 障害時のフォールバック導線（T15 ①③・DESIGN §6.3/§6.4）。
+ *
+ * サーバがヒアリング内容から組み立てた検索 URL（必ず内部の /search 始まり）を Link で示し、
+ * ユーザーが手ぶらにならないようにする。href が無ければ素の /search へ誘導する。
+ */
+function FallbackNotice({ message, searchHref }: FallbackData) {
+  return (
+    <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <p>{message}</p>
+      <Link
+        href={searchHref ?? "/search"}
+        className="mt-2 inline-block font-medium underline underline-offset-2"
+      >
+        検索ページで探す
+      </Link>
     </div>
   );
 }

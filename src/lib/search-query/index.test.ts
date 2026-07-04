@@ -5,7 +5,7 @@ import {
   isEmptyCriteria,
   sanitizeCriteria,
   toSearchQueryString,
-} from "./build-search-query";
+} from "./index";
 
 describe("buildSearchCriteria", () => {
   it("空の searchParams は全条件なし・page=1 に正規化する（全件表示へ）", () => {

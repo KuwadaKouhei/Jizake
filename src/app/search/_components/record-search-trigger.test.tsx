@@ -2,7 +2,7 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SearchCriteria } from "../_lib/build-search-query";
+import type { SearchCriteria } from "@/lib/search-query";
 
 const { recordSearch } = vi.hoisted(() => ({
   recordSearch: vi.fn<(criteria: SearchCriteria) => Promise<void>>(),

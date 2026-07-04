@@ -132,7 +132,7 @@ seed-data/                   # 説明文・種別・読み仮名・価格帯の 
 | 責務 | 名前（部分一致）× 都道府県 × 味タグの複合検索（FR-06） |
 | 実装 | 検索条件は **URL クエリパラメータ**（`/search?q=&pref=&tags=`）で表現し、Server Component が読み取って検索実行。共有可能な URL・ブラウザバック対応・SSR を一挙に満たす |
 | クエリ | 名前: `name ILIKE` ＋ `reading ILIKE`（読み仮名列、表記ゆれ対策）。都道府県: 蔵元 JOIN。味: タグ JOIN の EXISTS。複合は AND 結合 |
-| 検索条件の組み立て | `_lib/build-search-query.ts` に純関数として分離（ユニットテスト対象、TEST_PHILOSOPHY） |
+| 検索条件の組み立て | URL⇔条件の純関数として分離（ユニットテスト対象、TEST_PHILOSOPHY）。T15 で `src/lib/search-query/` へ昇格（検索・履歴・チャット fallback の 3 機能共用。DIR-11） |
 | 0件時 | 空状態メッセージ＋条件緩和の導線（タグを外すリンク） |
 | 拡張パス | 遅くなったら pg_trgm の GIN インデックスを追加。検索関数のシグネチャは変えない |
 
@@ -386,7 +386,7 @@ FR-01 受け入れ条件の「一覧・詳細 API で取得できる」は「サ
 ### 5.3 主要インターフェース（シグネチャ）
 
 ```ts
-// 検索（条件組み立ての純関数は src/app/search/_lib、クエリは src/lib/db/queries/sakes.ts）
+// 検索（URL⇔条件の純関数は src/lib/search-query〔T15 昇格〕、クエリは src/lib/db/queries/sakes.ts）
 // 実装では SakeSummary/タグ一括取得を県別一覧と共有するためクエリを db/queries に集約し、
 // タグは tagIds ではなく tagNames（URL 設計 ?tags=辛口・DATABASE §2.7 の filters と統一）、
 // 返り値は総件数つき SearchSakesPage（ページャ）に変更（T07 実装。CODE レビュー S-3）。
@@ -466,17 +466,27 @@ embedText(text: string): Promise<number[]>
 - チャットのコスト上限ガード（すべて定数化）:
   - 1 会話の往復数上限（初期 10）・1 メッセージ長上限・`maxOutputTokens` 設定。
   - システムプロンプトと候補リストを簡潔に保つ（候補は上位 8 件程度に絞って渡す）。
+  - T15 実装: 往復数は**ステートレスで毎回送られる全履歴内の user ロールメッセージ数**で数える
+    （user 発話数＝往復数。ツール往復は 1 リクエスト内で完結し水増しにならない）。上限超過時は
+    **LLM を呼ばず** data-fallback（誘導文言＋検索 URL）を返す（`api/chat/_lib/conversation-guard.ts`）。
 - レート制限: ログインユーザーは DB カウントで 1 日あたりのチャット回数上限（初期 20 会話/日）。
   匿名ユーザーは会話長上限のみで開始し、乱用が観測されたら匿名チャットを制限する（§8 判断 D5）。
+  T15 実装: `chat_sessions` を user_id＋created_at>=当日0時で count（index 8）。判定純関数と DB カウントを
+  分離。公開関数は user_id をセッションから強制取得（主防御）、匿名は対象外（`api/chat/_lib/rate-limit.ts`）。
 - 埋め込みは差分生成（sourceHash 比較）で再実行コストをほぼゼロに。
 - Supabase 無料枠の 7 日停止対策: GitHub Actions の定期 ping（cron）。
 
 ### 6.4 LLM 障害時のフォールバック
 
 - `/api/chat` で AI Gateway 呼び出しにタイムアウト（初期 30 秒）とエラーハンドリングを実装。
+  T15 実装: `streamText({ abortSignal: AbortSignal.timeout(30_000) })`＋route の `export const maxDuration`
+  （関数打ち切りが LLM タイムアウトより先に来ない余裕）。中断/障害は streamText の `onError` で捕捉する。
 - 失敗時はストリームにエラーパートを流し、UI は「現在チャットが混み合っています」＋
   **検索ページへの導線（それまでのヒアリング内容から組み立てた検索 URL があれば付与）**を表示する。
   retriever は LLM 非依存のため、LLM が全断してもタグ検索・カタログ・推薦（ルールベース）は全機能が生き残る。
+  T15 実装: 検索 URL は user 発話から**既知語彙（味タグ・都道府県名）に完全一致した条件のみ**抽出し
+  `toSearchQueryString` で `/search?...`（必ず内部パス＝オープンリダイレクトなし）を組む
+  （`api/chat/_lib/fallback-search.ts`。UI は data-fallback パートを `FallbackNotice` で描画）。
 - 想定内エラー（タイムアウト・レート超過）はフォールバック文言、想定外はエラーバウンダリへ
   （CODING_PHILOSOPHY 原則 5）。
 - AI Gateway 側でのプロバイダ障害はモデル ID 切替（例: Haiku → 他プロバイダ同格モデル）で即時回避可能。
@@ -504,7 +514,7 @@ embedText(text: string): Promise<number[]>
 | D1 | データ取得 API 層 | RSC から Drizzle 直接クエリ | REST/tRPC の API 層を挟む | Next.js の規約どおり。層を増やすのはシンプルさ最優先に反する。外部公開 API の要件もない |
 | D2 | 都道府県の表現 | 蔵元の属性（JIS コード定数） | Prefecture テーブル / タグ化 | 47 件固定でテーブル不要。タグ化は「県は蔵元の事実」というデータ構造を歪める。推薦での擬似タグ扱いはロジック側に閉じる |
 | D3 | 履歴記録のタイミング | Client Component から Server Action | RSC レンダリング中に INSERT | プリフェッチ・ボットによる多重記録を防ぎ、実閲覧のみを記録するため。表示パスと記録パスの分離で失敗時も表示に影響しない |
-| D4 | チャットセッション永続化 | ステートレス（クライアント保持）＋ログイン時の確定提案のみ DB 保存 | 全メッセージを常時 DB 保存 | 匿名チャット（思想: 未ログインでも価値）でユーザー紐付けが無く、全保存は複雑さとストレージだけ増える。推薦に効くのは「確定提案」のみ |
+| D4 | チャットセッション永続化 | ステートレス（クライアント保持）＋ログイン時の確定提案のみ DB 保存 | 全メッセージを常時 DB 保存 | 匿名チャット（思想: 未ログインでも価値）でユーザー紐付けが無く、全保存は複雑さとストレージだけ増える。推薦に効くのは「確定提案」のみ。T15 実装: 保存タイミング＝proposeSake が検証済みカードを送る時点、粒度＝1 会話 = 1 セッション（その時点の全会話を chat_sessions 1 行＋chat_messages にまとめて保存）。`proposed_sake_ids` は検証済み ID のみを末尾 assistant に非正規化。user_id はセッションから強制（`api/chat/_lib/persist-session.ts`） |
 | D5 | 匿名チャットのレート制限 | 会話長上限のみで開始 | IP ベース制限（Upstash 等の外部 KV） | サーバレスでの IP レート制限は外部ストアが必要になり、サービスが 1 つ増える（原則 1・4 に反する）。乱用が観測されてから追加する（先回りしない） |
 | D6 | 推薦の計算方式 | オンデマンド SQL 集計 | 事前計算テーブル / バッチ | 数千件規模ではオンデマンドで十分速い。リアルタイム性 vs コストで「コスト」を選ぶ思想の表どおり |
 | D7 | 検索状態の持ち方 | URL クエリパラメータ | クライアント状態（useState 等） | 共有可能 URL・ブラウザバック・SSR・履歴記録（filters の再現）がすべて成立する。Web の規約に従う |

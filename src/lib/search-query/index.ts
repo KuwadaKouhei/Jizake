@@ -3,7 +3,14 @@ import { z } from "zod";
 import { parsePageParam } from "@/lib/pagination/pagination";
 
 /**
- * 検索条件の組み立て（URL クエリパラメータ → 検索条件の純関数）。
+ * 検索条件の URL 表現（URL クエリパラメータ ⇔ 検索条件の純関数群）。
+ *
+ * 横断配置（DIRECTORY_STRUCTURE DIR-11 の予告どおり src/lib へ昇格。REVIEW T15 思想 S-1）:
+ * SearchCriteria / toSearchQueryString / isEmptyCriteria / sanitizeCriteria /
+ * buildSearchCriteria / RawSearchParams は **検索(T07)・履歴(T09)・チャットのフォールバック
+ * 導線(T15)** の 3 機能から参照される「URL ⇔ 条件の唯一の情報源」であり、Rule of Three の
+ * 昇格トリガに達したため機能固有の search/_lib からここへ移した（機能固有 _lib 同士の
+ * 一方向参照〔history→search〕を解消し、再実装による二重定義を防ぐ）。
  *
  * DESIGN §2.2 / 決定 D7: 検索状態は URL クエリパラメータで表現する
  * （共有可能 URL・ブラウザバック・SSR・履歴記録の filters 再現をすべて満たす）。
@@ -11,7 +18,7 @@ import { parsePageParam } from "@/lib/pagination/pagination";
  * サニタイズ・正規化し、不正値は無視してデフォルトへ倒す。この境界処理を純関数に
  * 分離してユニットテスト対象にする（TEST_PHILOSOPHY: 検索条件の組み立てを厚くテスト）。
  *
- * ここは UI・DB のどちらにも依存しない（DIRECTORY_STRUCTURE §5.2: _lib は純関数・型）。
+ * ここは UI・DB のどちらにも依存しない（純関数・型のみ）。
  */
 
 /** Next.js の searchParams が各キーで取り得る生の形。 */

@@ -40,17 +40,31 @@ export type ProposedSakesData = {
 };
 
 /**
+ * コスト上限超過・LLM 障害時にサーバが送る「フォールバック導線」データ（T15 ①③・DESIGN §6.3/§6.4）。
+ * UI は message（誘導文言）を表示し、searchHref（必ず内部の /search 始まり）を検索リンクにする。
+ */
+export type FallbackData = {
+  /** ユーザー向けの誘導文言（コスト上限超過・タイムアウト等）。 */
+  message: string;
+  /** ヒアリング内容から組み立てた検索誘導 href（内部パス。省略時は導線なし）。 */
+  searchHref?: string;
+};
+
+/**
  * RAG チャットで使う UIMessage 型（custom data part を型付けする）。
- * サーバ（route.ts）とクライアント（useChat）で共有し、`data-proposedSakes` の
+ * サーバ（route.ts）とクライアント（useChat）で共有し、data part の
  * ペイロード型を一致させる（AI SDK v6 の UIMessage ジェネリクスに data 型を渡す）。
  */
 export type ChatUIMessage = UIMessage<
   never,
-  { proposedSakes: ProposedSakesData }
+  { proposedSakes: ProposedSakesData; fallback: FallbackData }
 >;
 
 /** custom data part の type 名（AI SDK は `data-<name>` を予約プレフィックスにする）。 */
 export const PROPOSED_SAKES_DATA_TYPE = "data-proposedSakes" as const;
+
+/** フォールバック導線の data part type 名。 */
+export const FALLBACK_DATA_TYPE = "data-fallback" as const;
 
 // ---------------------------------------------------------------------------
 // searchSake の入力・出力（境界の型検証）
@@ -135,6 +149,15 @@ export type ValidateProposedSakeIdsFn = typeof defaultValidateProposedSakeIds;
 export type CreateChatToolsDeps = {
   /** 検証済みカードのデータパートを書き込むストリームライタ。 */
   writer: UIMessageStreamWriter<ChatUIMessage>;
+  /**
+   * 確定提案の蓄積先（リクエストスコープの配列。REVIEW T15 S-1/S-2）。
+   *
+   * proposeSake が検証済みカードを送るたびに、その検証済み銘柄をここへ push する（保存はしない）。
+   * DB 保存は route.ts の streamText onFinish で **1 リクエストにつき 1 回だけ**行う
+   * （proposeSake が複数回呼ばれても chat_sessions は 1 行＝1 会話 1 セッション・決定 D4 を守る）。
+   * 省略時は蓄積しない（テストで蓄積を見ないケース）。
+   */
+  collectedProposals?: SakeSummary[];
   /** ハイブリッド検索（既定は本番 retriever）。 */
   retrieve?: RetrieveFn;
   /** 提案 ID の DB 存在検証（既定は本番 validateProposedSakeIds）。 */
@@ -150,6 +173,7 @@ export type CreateChatToolsDeps = {
  */
 export function createChatTools({
   writer,
+  collectedProposals,
   retrieve = defaultRetrieve,
   validateProposedSakeIds = defaultValidateProposedSakeIds,
 }: CreateChatToolsDeps) {
@@ -188,12 +212,17 @@ export function createChatTools({
         // 捏造防止の二段目: DB 存在検証で実在銘柄のみに絞る（存在しない ID は除外）。
         const verified = await validateProposedSakeIds(ids);
 
-        // 検証済みカードをデータパートとしてストリームに載せる（UI は sake-card で描画）。
+        // 検証済みカードをデータパートとしてストリームに載せる（UI は sake-card で描画。先行）。
         if (verified.length > 0) {
           writer.write({
             type: PROPOSED_SAKES_DATA_TYPE,
             data: { sakes: verified },
           });
+
+          // 確定提案をリクエストスコープに蓄積するだけ（保存は onFinish で 1 回。REVIEW T15 S-1/S-2）。
+          // ここで保存すると proposeSake 複数回でセッションが複数行になり D4「1 会話 1 セッション」が
+          // 破れ、in-flight の assistant 本文が未確定になる。保存の DB I/O もストリーム経路から外す。
+          collectedProposals?.push(...verified);
         }
 
         // LLM には検証を通った件数だけを返す（0 件なら条件緩和を促すため 0 を渡す）。

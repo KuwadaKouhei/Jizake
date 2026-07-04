@@ -1,8 +1,5 @@
-import {
-  type SearchCriteria,
-  toSearchQueryString,
-} from "@/app/search/_lib/build-search-query";
 import { findPrefectureByCode } from "@/lib/constants/prefectures";
+import { type SearchCriteria, toSearchQueryString } from "@/lib/search-query";
 
 import type { SearchHistoryEntry } from "./queries";
 
