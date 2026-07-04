@@ -59,9 +59,12 @@ Jizake/
 │  └─ philosophy/
 ├─ drizzle/                            # drizzle-kit 生成 SQL ＋ カスタム SQL（RLS/トリガ/vector拡張/HNSW）
 ├─ e2e/                                # Playwright E2E（機能横断のため唯一テストを分離。§8 決定 DIR-5）
+│  ├─ README.md                        # 実データ/実キー有無での skip 方針・フルフロー実行手順（T16）
 │  ├─ search-flow.spec.ts              # 検索→一覧→詳細
 │  ├─ auth.spec.ts                     # サインアップ・ログイン
-│  └─ chat.spec.ts                     # チャット1往復（LLM はモックエンドポイント）
+│  ├─ chat.spec.ts                     # チャット1往復（LLM はモックエンドポイント）
+│  └─ _support/                        # spec 共有ヘルパ（非 spec。env 有無で skip 判定。T16）
+│     └─ env.ts                        # DATABASE_URL / Supabase / AI_GATEWAY_API_KEY の有無フラグ
 ├─ public/                             # 静的ファイル（Next.js 規約）
 ├─ scripts/                            # ローカル実行バッチ（tsx）。Web アプリのビルド対象外
 │  ├─ import-sakenowa.ts               # さけのわ取り込み（冪等 upsert）
@@ -208,7 +211,7 @@ Jizake/
 | `scripts/lib/<source>/` | データソース1つとの境界（取得・検証・変換）、または使い捨て評価ハーネス（`scripts/lib/rag-eval/`。T13） | Zod 検証・変換純関数・フィクスチャ・評価指標。DB 書き込みはスクリプト本体で |
 | `seed-data/` | 手作業データの実体（コードと同様にレビュー） | JSON/TS のデータのみ。ロジックを置かない |
 | `drizzle/` | マイグレーション SQL（生成＋カスタム） | drizzle-kit 生成分と、RLS・トリガ・拡張・HNSW のカスタム SQL |
-| `e2e/` | 主要導線の E2E テスト | Playwright spec のみ。ユニット・統合テストは置かない（ソース隣接） |
+| `e2e/` | 主要導線の E2E テスト | Playwright spec（`*.spec.ts`）＋ spec 共有ヘルパ（`_support/`。実データ/実キー有無で skip 判定する env フラグ等の非 spec）。ユニット・統合テストは置かない（ソース隣接） |
 | `docs/` | 設計ドキュメント | — |
 
 ---
