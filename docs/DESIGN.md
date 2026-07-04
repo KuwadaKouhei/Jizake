@@ -398,15 +398,23 @@ recommend(input: { userId: string | null; limit: number }): Promise<RecommendedS
 // RecommendedSake = { sake: SakeSummary; reason: RecommendReason }
 
 // RAG retriever（src/lib/rag）— generator から独立
-retrieveSakeCandidates(query: {
+// T12 実装: 公開エントリは retrieve(query)。テスト・PoC 用に db・埋め込み関数を
+// 注入する下位関数 retrieveSakeCandidates(db, embedQuery, query) を持つ（embedSakes と同型。
+// PGlite＋ダミー埋め込みで統合テストするため。TEST_PHILOSOPHY）。SakeCandidate は
+// SakeSummary＋統合スコア（VECTOR_WEIGHT/TAG_WEIGHT 加重和）＋根拠（vectorSimilarity・
+// matchedTagCount）。埋め込みが無い銘柄もタグ成分だけで順位が付き候補に残る。
+retrieve(query: {
   freeText?: string;            // ベクタ類似度に使う自然文
   tagNames?: string[];
   prefectureCode?: string;
   priceRange?: string;
-  limit?: number;
+  limit?: number;               // 既定 8（DESIGN §6.3）
 }): Promise<SakeCandidate[]>    // 必ず実在の sakeId を含む
 
-// 捏造防止の検証（src/lib/rag）— ユニットテスト対象
+// 捏造防止の検証（src/lib/rag）— ユニット＋統合テスト対象
+// T12 実装: 公開エントリ validateProposedSakeIds(ids)。db 注入の下位関数
+// selectExistingSakes(db, ids) を持つ。UUID 書式不正・存在しない ID を破棄し、
+// 入力 ids の順序（LLM の提案順）を保って実在銘柄のみ返す。
 validateProposedSakeIds(ids: string[]): Promise<SakeSummary[]> // 実在するもののみ返す
 
 // 履歴（Server Actions）
