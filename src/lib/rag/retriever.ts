@@ -1,20 +1,14 @@
-import { and, asc, cosineDistance, eq, exists, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, cosineDistance, eq, sql, type SQL } from "drizzle-orm";
 
 import { embedText } from "@/lib/ai/embedding";
 import { getDb } from "@/lib/db/client";
 import {
+  buildTagAndFilters,
   type CatalogDb,
   type SakeSummary,
   selectTagsBySakeIds,
 } from "@/lib/db/queries/sakes";
-import {
-  breweries,
-  sakeEmbeddings,
-  sakeTags,
-  sakes,
-  tags,
-} from "@/lib/db/schema";
+import { breweries, sakeEmbeddings, sakes } from "@/lib/db/schema";
 
 /**
  * RAG リトリーバ（ハイブリッド検索）。**LLM に一切依存しない**（DESIGN §2.6）。
@@ -58,8 +52,18 @@ export const DEFAULT_CANDIDATE_LIMIT = 8;
  * 候補母集団の上限。ベクタ ORDER BY で上位を取得する件数の上限で、
  * タグ絞り込みが緩い（または無い）場合に全銘柄をメモリに載せないための保険
  * （汎用検索での自己 DoS 回避。REVIEW T10 PERF S-1 と同じ姿勢）。
+ *
+ * 現状は「ハード絞り込み後の母集団を距離順で pool 件切り出し→メモリでスコア再計算」で、
+ * タグ絞り込みが効けば母集団が pool 内に収まる前提。厳密な「距離上位 N ∪ タグ一致」への
+ * 変更（ANN 経路とタグ経路の分離）は実データ EXPLAIN が要るため T13 PoC で対応する（REVIEW T12 PERF B-1）。
  */
 const CANDIDATE_POOL_SIZE = 100;
+
+/**
+ * freeText の最大長。巨大テキストをそのまま埋め込みに渡すコスト・API エラーを避けるため、
+ * 埋め込み前に切り詰める（信頼境界外の入力への防御。REVIEW T12 SEC S-2）。
+ */
+const MAX_FREE_TEXT_LENGTH = 1000;
 
 // リトリーバが受ける DB 型（本番は postgres-js、テストは PGlite を差し込む）。
 type Db = CatalogDb;
@@ -94,7 +98,11 @@ export type SakeCandidate = {
   sake: SakeSummary;
   /** 統合スコア（大きいほど適合。VECTOR_WEIGHT・TAG_WEIGHT の加重和）。 */
   score: number;
-  /** ベクタ類似度（0..1, 1 - cosine距離）。埋め込みが無い・freeText 無しなら null。 */
+  /**
+   * ベクタ類似度（0..1）。`max(0, 1 - cosine距離)` で下限 0 にクランプ済み
+   * （逆向き＝負の意味的類似は「無関係」= 0 に丸め、順位逆転を防ぐ。REVIEW T12 CODE S-1）。
+   * 埋め込みが無い・freeText 無しなら null。
+   */
   vectorSimilarity: number | null;
   /** 要求タグのうち一致した数（根拠表示・デバッグ用）。 */
   matchedTagCount: number;
@@ -107,7 +115,9 @@ export type SakeCandidate = {
 /**
  * ベクタ類似度成分とタグ一致度成分を重み付き和で統合する（純関数）。
  *
- * - vectorSimilarity: 0..1。埋め込みが無い or freeText 無しのときは null（成分なし＝0 扱い）。
+ * - vectorSimilarity: 0..1（呼び出し側が max(0, 1 - cosine距離) でクランプ済み）。埋め込みが
+ *   無い or freeText 無しのときは null（成分なし＝0 扱い）。負値を渡さない前提（範囲は
+ *   呼び出し側が保証）。
  * - matchedTagCount / requestedTagCount でタグ一致率（0..1）を出す。要求タグ 0 のときは
  *   タグ成分を評価に含めない（1 でも 0 でもなく「無関係」＝ 0 とし、ベクタのみで並べる）。
  *
@@ -138,13 +148,13 @@ export function combineScore(input: {
 /**
  * タグ・都道府県・価格帯のハード絞り込み条件を組み立てる。
  *
- * searchSakes（src/lib/db/queries/sakes.ts）の EXISTS/JOIN の考え方を踏襲する
- * （味タグは各タグの相関サブクエリ EXISTS を AND 連結）。retriever は freeText の
- * ベクタ順で並べる点が検索と異なるため、共通化せず同型のロジックを別に持つ
- * （Rule of Three: 現状 2 箇所。3 箇所目が出たら条件ビルダを昇格する）。
+ * 味タグの AND 絞り込みは searchSakes（検索）と同型のため共通ヘルパ buildTagAndFilters
+ * （src/lib/db/queries/sakes.ts）を使い、両者の挙動を一致させる（Rule of Three 昇格。
+ * alias 接頭辞 "rt" で searchSakes の "st" と分ける）。retriever 固有の並び（freeText の
+ * ベクタ順）は本体の orderBy 側に持つ。
  */
-function buildFilters(db: Db, query: RetrieveQuery) {
-  const conditions = [];
+function buildFilters(db: Db, query: RetrieveQuery): SQL | undefined {
+  const conditions: SQL[] = [];
 
   if (query.prefectureCode !== undefined) {
     conditions.push(eq(breweries.prefectureCode, query.prefectureCode));
@@ -152,21 +162,7 @@ function buildFilters(db: Db, query: RetrieveQuery) {
   if (query.priceRange !== undefined) {
     conditions.push(eq(sakes.priceRange, query.priceRange));
   }
-
-  const tagNames = query.tagNames ?? [];
-  for (const [i, tagName] of tagNames.entries()) {
-    const st = alias(sakeTags, `rt_st_${i}`);
-    const tg = alias(tags, `rt_tg_${i}`);
-    conditions.push(
-      exists(
-        db
-          .select({ one: sql`1` })
-          .from(st)
-          .innerJoin(tg, eq(tg.id, st.tagId))
-          .where(and(eq(st.sakeId, sakes.id), eq(tg.name, tagName))),
-      ),
-    );
-  }
+  conditions.push(...buildTagAndFilters(db, query.tagNames ?? [], "rt"));
 
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
@@ -195,13 +191,17 @@ export async function retrieveSakeCandidates(
   embedQuery: EmbedQueryFn,
   query: RetrieveQuery,
 ): Promise<SakeCandidate[]> {
-  const limit = query.limit ?? DEFAULT_CANDIDATE_LIMIT;
+  // 上位層が過大な limit を渡しても母集団上限を超えないようクランプする（値渡しミス耐性。
+  // REVIEW T12 SEC S-3）。0 以下は候補なし（埋め込みも呼ばない）。
+  const requestedLimit = query.limit ?? DEFAULT_CANDIDATE_LIMIT;
+  const limit = Math.min(requestedLimit, CANDIDATE_POOL_SIZE);
   if (limit <= 0) {
     return [];
   }
 
   const where = buildFilters(db, query);
-  const freeText = query.freeText?.trim();
+  // 巨大テキストは埋め込み前に切り詰める（コスト・API エラー回避。REVIEW T12 SEC S-2）。
+  const freeText = query.freeText?.trim().slice(0, MAX_FREE_TEXT_LENGTH);
   const hasFreeText = freeText !== undefined && freeText.length > 0;
 
   // ベクタ距離の式。freeText があれば埋め込んで cosineDistance を計算する。
@@ -263,9 +263,11 @@ export async function retrieveSakeCandidates(
       requestedTags.has(tag.name),
     ).length;
 
-    // cosine 距離（0..2）を類似度（1..-1）へ。埋め込み無し・freeText 無しは null。
+    // cosine 距離（0..2）を類似度へ。1 - 距離は 1..-1 になり得るが、負（逆向き＝無関係）は
+    // 0 にクランプする。クランプしないとタグ同一一致でも「埋め込み有り（逆向き）」が
+    // 「埋め込み無し（null=0 扱い）」より下に沈み順位が逆転する（REVIEW T12 CODE S-1）。
     const vectorSimilarity =
-      row.distance === null ? null : 1 - Number(row.distance);
+      row.distance === null ? null : Math.max(0, 1 - Number(row.distance));
 
     return {
       sake: {

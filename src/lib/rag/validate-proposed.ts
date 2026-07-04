@@ -27,9 +27,17 @@ import { breweries, sakes } from "@/lib/db/schema";
 type Db = CatalogDb;
 
 /**
+ * 検証する提案 ID の最大件数。LLM の structured output は信頼境界の外なので、
+ * 巨大な ID 配列（巨大 IN の DoS）を防ぐため先頭 MAX_PROPOSED_IDS 件だけを検証する
+ * （提案として提示するのは高々数枚のカード。REVIEW T12 SEC S-1）。
+ */
+const MAX_PROPOSED_IDS = 16;
+
+/**
  * 提案 ID 配列を DB 存在検証し、実在銘柄の SakeSummary を返す（db を明示的に受ける下位関数）。
  * テストでは PGlite を差し込むためにこちらを直接呼ぶ。
  *
+ * - 先頭 MAX_PROPOSED_IDS 件だけを検証対象にする（巨大 IN の DoS 防御。SEC S-1）。
  * - UUID v4 書式でない ID は DB へ問い合わせる前に弾く（不正入力の境界検証。isValidSakeId 再利用）。
  * - 重複 ID は 1 件に畳む（LLM が同じ銘柄を複数回返しても提案は 1 枚）。
  * - **返す順序は入力 ids の順序を保つ**（LLM の提案順＝提示したい優先順を尊重）。
@@ -40,10 +48,10 @@ export async function selectExistingSakes(
   db: Db,
   ids: readonly string[],
 ): Promise<SakeSummary[]> {
-  // 書式検証＋重複除去（入力順を保ったユニーク化）。
+  // 書式検証＋重複除去（入力順を保ったユニーク化）。信頼境界外の入力を先頭上限で切ってから処理する。
   const seen = new Set<string>();
   const validIds: string[] = [];
-  for (const id of ids) {
+  for (const id of ids.slice(0, MAX_PROPOSED_IDS)) {
     if (isValidSakeId(id) && !seen.has(id)) {
       seen.add(id);
       validIds.push(id);

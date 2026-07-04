@@ -86,6 +86,13 @@ function oneHot(index: number): number[] {
   return v;
 }
 
+/** 指定 index を -1、他を 0 とする逆向きベクトル（query の oneHot と cosine 距離 2＝真逆）。 */
+function reversedOneHot(index: number): number[] {
+  const v = Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0);
+  v[index] = -1;
+  return v;
+}
+
 /** クエリ文字列 → ワンホットベクトルへ写す注入用埋め込み（決定的・実 API 非依存）。 */
 function fakeEmbedForIndex(index: number): EmbedQueryFn {
   return async () => oneHot(index);
@@ -116,10 +123,10 @@ async function seedSake(
   return row.id;
 }
 
-async function seedEmbedding(sakeId: string, index: number) {
+async function seedEmbedding(sakeId: string, embedding: number[] = oneHot(0)) {
   await orm.insert(schema.sakeEmbeddings).values({
     sakeId,
-    embedding: oneHot(index),
+    embedding,
     model: "test",
     sourceHash: `hash-${sakeId}`,
   });
@@ -171,8 +178,8 @@ describe("retrieveSakeCandidates（ハイブリッド検索）", () => {
     const breweryId = await seedBrewery("旭酒造", "35");
     const near = await seedSake(breweryId, "近い酒");
     const far = await seedSake(breweryId, "遠い酒");
-    await seedEmbedding(near, 0); // クエリ(index0)と同方向 → 距離 0
-    await seedEmbedding(far, 1); // 直交 → 距離 1
+    await seedEmbedding(near, oneHot(0)); // クエリ(index0)と同方向 → 距離 0
+    await seedEmbedding(far, oneHot(1)); // 直交 → 距離 1
 
     const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
       freeText: "近い味が好き",
@@ -317,7 +324,7 @@ describe("retrieveSakeCandidates（ハイブリッド検索）", () => {
   it("返す候補は必ず実在の sakeId を含む（捏造防止の一段目）", async () => {
     const breweryId = await seedBrewery("旭酒造", "35");
     const id = await seedSake(breweryId, "獺祭");
-    await seedEmbedding(id, 0);
+    await seedEmbedding(id, oneHot(0));
 
     const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
       freeText: "何か",
@@ -327,5 +334,61 @@ describe("retrieveSakeCandidates（ハイブリッド検索）", () => {
       .from(schema.sakes);
     const existingIds = new Set(existing.map((r) => r.id));
     expect(result.every((r) => existingIds.has(r.sake.id))).toBe(true);
+  });
+
+  it("逆向き埋め込み（負の類似）でもタグ一致なら埋め込み無しと同等以上（vectorSimilarity クランプ。CODE S-1）", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    // 逆向き埋め込み（クエリと真逆＝cosine 距離 2、1-2=-1）だがタグ一致
+    const reversed = await seedSake(breweryId, "逆向き辛口");
+    await seedEmbedding(reversed, reversedOneHot(0));
+    await tagSake(reversed, "辛口");
+    // 埋め込み無し＋タグ一致
+    const noEmbedding = await seedSake(breweryId, "埋め込み無し辛口");
+    await tagSake(noEmbedding, "辛口");
+
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      freeText: "辛口が好き",
+      tagNames: ["辛口"],
+    });
+
+    const byId = new Map(result.map((r) => [r.sake.id, r]));
+    const reversedCand = byId.get(reversed);
+    const noEmbCand = byId.get(noEmbedding);
+    // 逆向きは負にならず 0 にクランプされる（順位逆転を防ぐ）
+    expect(reversedCand?.vectorSimilarity).toBe(0);
+    // 両者ともタグ 1/1 一致・ベクタ成分 0 なので score は同点（逆向きが沈まない）
+    expect(reversedCand?.score).toBeCloseTo(noEmbCand?.score ?? -1);
+    expect(reversedCand?.score).toBeGreaterThanOrEqual(noEmbCand?.score ?? 0);
+  });
+
+  it("limit は母集団上限（CANDIDATE_POOL_SIZE）にクランプされる（値渡しミス耐性。SEC S-3）", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    for (let i = 0; i < 3; i++) {
+      await seedSake(breweryId, `酒${i}`, { popularityRank: i + 1 });
+    }
+    // 巨大 limit を渡しても件数分だけ返り、例外にならない
+    const result = await retrieveSakeCandidates(orm, fakeEmbedForIndex(0), {
+      limit: 100000,
+    });
+    expect(result).toHaveLength(3);
+  });
+
+  it("巨大 freeText でも切り詰めてから埋め込みに渡す（SEC S-2）", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    const id = await seedSake(breweryId, "獺祭");
+    await seedEmbedding(id, oneHot(0));
+
+    // 埋め込みに渡された文字列長を記録する注入関数
+    let receivedLength = -1;
+    const embed: EmbedQueryFn = async (text) => {
+      receivedLength = text.length;
+      return oneHot(0);
+    };
+    await retrieveSakeCandidates(orm, embed, {
+      freeText: "あ".repeat(5000),
+    });
+    // MAX_FREE_TEXT_LENGTH(1000) 以下に切り詰められている
+    expect(receivedLength).toBeLessThanOrEqual(1000);
+    expect(receivedLength).toBeGreaterThan(0);
   });
 });

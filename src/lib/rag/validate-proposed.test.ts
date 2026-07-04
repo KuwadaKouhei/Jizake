@@ -109,6 +109,24 @@ describe("selectExistingSakes（提案 ID の DB 存在検証）", () => {
     ).toEqual([]);
   });
 
+  it("先頭 MAX_PROPOSED_IDS（16）件だけを検証する（巨大 IN の DoS 防御。SEC S-1）", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    // 実在銘柄を先頭に 1 件、その後にダミー UUID を大量に並べる
+    const real = await seedSake(breweryId, "獺祭");
+    const filler = Array.from(
+      { length: 100 },
+      (_v, i) =>
+        `${String(i + 10).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    // 17 件目以降（上限外）にだけ置いた実在銘柄は検証されない
+    const beyondLimit = await seedSake(breweryId, "獺祭 45");
+    const ids = [real, ...filler.slice(0, 20), beyondLimit];
+
+    const result = await selectExistingSakes(orm, ids);
+    // 先頭 16 件のうち実在は real のみ。上限外の beyondLimit は無視される
+    expect(result.map((s) => s.id)).toEqual([real]);
+  });
+
   it("提案銘柄はタグを含めて返す（カード表示用）", async () => {
     const breweryId = await seedBrewery("旭酒造", "35");
     const sakeId = await seedSake(breweryId, "獺祭");
