@@ -100,8 +100,9 @@ export function JapanMap() {
                       transform={`translate(${shape.tx}, ${shape.ty})`}
                       className={cn(
                         "stroke-background transition-colors group-hover/pref:fill-primary group-focus-visible/pref:fill-primary",
+                        // 非ホバーは背景と紛れない明確なグレー、ホバー/フォーカスで藍。
                         // ハイドレーション後はホバー中の県を state でも塗る（隣県跨ぎのちらつき防止）
-                        isHovered ? "fill-primary" : "fill-secondary",
+                        isHovered ? "fill-primary" : "fill-muted-foreground/40",
                       )}
                       strokeWidth="1.5"
                       strokeLinejoin="round"
