@@ -20,8 +20,20 @@ describe("CHAT_SYSTEM_PROMPT（初版）", () => {
   });
 
   it("ヒアリング質問数が定数と一致してプロンプトに埋め込まれている", () => {
-    expect(MAX_HEARING_QUESTIONS).toBe(3);
+    expect(MAX_HEARING_QUESTIONS).toBe(4);
     expect(CHAT_SYSTEM_PROMPT).toContain(`${MAX_HEARING_QUESTIONS} 問以内`);
+  });
+
+  it("段階的な絞り込み（1 問ずつ・件数の共有・実在選択肢からの質問）を指示している（T23）", () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain("1 つだけ");
+    expect(CHAT_SYSTEM_PROMPT).toContain("total");
+    expect(CHAT_SYSTEM_PROMPT).toContain("narrowingTags");
+    // 0 件時は条件を外して再検索する指示
+    expect(CHAT_SYSTEM_PROMPT).toContain("0 件");
+  });
+
+  it("Markdown 装飾記法を使わない指示を含む（T23: ** の生表示対策）", () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain("Markdown");
   });
 
   it("提案上限件数が定数と一致してプロンプトに埋め込まれている", () => {

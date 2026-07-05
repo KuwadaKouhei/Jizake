@@ -33,4 +33,13 @@ describe("TypewriterText", () => {
     // 本文はまだ全部は出ていない（キャレット等を除いても全文未満）。
     expect(container.textContent?.includes(full)).toBe(false);
   });
+
+  it("`**〜**` は <strong> で表示し、記号は出さない", () => {
+    const { container } = render(
+      <TypewriterText text="おすすめは **辛口** です" active={false} />,
+    );
+    expect(container.textContent).toBe("おすすめは 辛口 です");
+    expect(container.textContent).not.toContain("**");
+    expect(container.querySelector("strong")?.textContent).toBe("辛口");
+  });
 });

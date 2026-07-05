@@ -4,6 +4,7 @@ import {
   cosineDistance,
   eq,
   inArray,
+  notInArray,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -16,7 +17,13 @@ import {
   type SakeSummary,
   selectTagsBySakeIds,
 } from "@/lib/db/queries/sakes";
-import { breweries, sakeEmbeddings, sakes } from "@/lib/db/schema";
+import {
+  breweries,
+  sakeEmbeddings,
+  sakes,
+  sakeTags,
+  tags,
+} from "@/lib/db/schema";
 
 /**
  * RAG リトリーバ（ハイブリッド検索）。**LLM に一切依存しない**（DESIGN §2.6）。
@@ -461,4 +468,73 @@ function compareScored(a: ScoredCandidate, b: ScoredCandidate): number {
  */
 export function retrieve(query: RetrieveQuery): Promise<SakeCandidate[]> {
   return retrieveSakeCandidates(getDb(), embedText, query);
+}
+
+// ---------------------------------------------------------------------------
+// 絞り込み状況の要約（該当件数＋実在する次の絞り込み候補）— T23
+// ---------------------------------------------------------------------------
+
+/** 次の絞り込み候補として返す味タグの上限（LLM への選択肢提示に十分な数）。 */
+export const NARROWING_TAG_LIMIT = 8;
+
+/**
+ * ハード絞り込み条件の要約。チャットの段階的ヒアリング（T23）で
+ * 「その条件だと何件か」「その中でさらに絞れる実在の選択肢は何か」を LLM に渡す。
+ */
+export type RetrieveFilterSummary = {
+  /** ハード絞り込み（タグ AND・都道府県・価格帯）に一致する銘柄の総数。 */
+  total: number;
+  /**
+   * 一致集合の中で実際に付いている味タグと件数（要求済みタグは除く・件数降順）。
+   * LLM はこの中からだけ次の絞り込み質問の選択肢を作る（存在しない条件で絞って
+   * 0 件に落ちる会話を防ぐ）。
+   */
+  narrowingTags: { name: string; count: number }[];
+};
+
+/**
+ * ハード絞り込み条件（freeText を除くタグ・都道府県・価格帯）に一致する銘柄の
+ * 総数と、その集合内の味タグ分布（ファセット）を返す（db を受けるテスト可能な下位関数）。
+ *
+ * retrieveSakeCandidates と同じ buildFilters を使い、検索と件数の判定を一致させる。
+ * ベクタ検索（freeText）はソフトな並べ替えであり件数を変えないため、ここでは扱わない。
+ */
+export async function summarizeFilterFacets(
+  db: Db,
+  query: Pick<RetrieveQuery, "tagNames" | "prefectureCode" | "priceRange">,
+): Promise<RetrieveFilterSummary> {
+  const where = buildFilters(db, query);
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(sakes)
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(where);
+
+  const requested = query.tagNames ?? [];
+  const facetCount = sql<number>`count(distinct ${sakeTags.sakeId})::int`;
+  const facetConditions: SQL[] = [eq(tags.category, "taste")];
+  if (requested.length > 0) {
+    facetConditions.push(notInArray(tags.name, requested));
+  }
+
+  const narrowingTags = await db
+    .select({ name: tags.name, count: facetCount })
+    .from(sakeTags)
+    .innerJoin(tags, eq(tags.id, sakeTags.tagId))
+    .innerJoin(sakes, eq(sakes.id, sakeTags.sakeId))
+    .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
+    .where(and(where, ...facetConditions))
+    .groupBy(tags.name)
+    .orderBy(sql`count(distinct ${sakeTags.sakeId}) desc`, asc(tags.name))
+    .limit(NARROWING_TAG_LIMIT);
+
+  return { total, narrowingTags };
+}
+
+/** 絞り込み要約の公開エントリ（本番 DB 使用。テストは summarizeFilterFacets を直接呼ぶ）。 */
+export function summarizeFilters(
+  query: Pick<RetrieveQuery, "tagNames" | "prefectureCode" | "priceRange">,
+): Promise<RetrieveFilterSummary> {
+  return summarizeFilterFacets(getDb(), query);
 }
