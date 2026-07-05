@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   confirmationSentMessage,
+  oauthErrorMessage,
   signInErrorMessage,
   signUpErrorMessage,
 } from "./messages";
@@ -31,5 +32,11 @@ describe("signUpErrorMessage", () => {
 describe("confirmationSentMessage", () => {
   it("メール確認待ちの案内文言を返す", () => {
     expect(confirmationSentMessage()).toContain("確認メール");
+  });
+});
+
+describe("oauthErrorMessage", () => {
+  it("プロバイダ詳細を出さない汎用の Google ログイン失敗文言を返す", () => {
+    expect(oauthErrorMessage()).toContain("Google ログインに失敗しました");
   });
 });

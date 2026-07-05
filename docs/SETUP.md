@@ -100,6 +100,21 @@ Supabase の既定は **Confirm email = ON**。この場合サインアップ直
 Dashboard → Authentication → Providers → Email の **Confirm email を一時 OFF**（またはテストユーザーを
 Dashboard で作成）すると、サインアップ→即ログインで `/history` まで到達できる。
 
+### Google ログイン（OAuth・T24。あなたの作業）
+「Google でログイン/登録」ボタンを動かすには、Google 側の OAuth クライアントと Supabase の設定が要る
+（コードは実装済み。設定しない間はボタンを押すと `?error=oauth` で失敗し、メール認証は従来どおり動く）。
+
+1. **Google Cloud Console** → 「APIとサービス」→「OAuth 同意画面」を構成 → 「認証情報」で
+   **OAuth 2.0 クライアント ID（種類: ウェブアプリケーション）**を作成。
+   - 承認済みのリダイレクト URI に **`https://<project-ref>.supabase.co/auth/v1/callback`** を追加
+     （Supabase の Google プロバイダ設定画面にも同じ URI が表示される）。
+   - 発行された **クライアント ID / クライアントシークレット**を控える。
+2. **Supabase Dashboard** → Authentication → Providers → **Google** を有効化し、上記 ID / シークレットを入力。
+3. **Supabase Dashboard** → Authentication → URL Configuration → **Redirect URLs** に、アプリの
+   コールバック **`http://localhost:3000/auth/callback`**（本番は `https://<本番ドメイン>/auth/callback`）を追加。
+   - アプリは「このリクエストのホスト」から `…/auth/callback` を組み立てるため、使うオリジンを許可リストへ入れること。
+4. `npm run dev` で `/login` の「Google でログイン」から疎通確認（Google 認可 → `/auth/callback` → 元の画面へ）。
+
 ---
 
 ## 4. AI Gateway のキーを発行する（あなたの作業）

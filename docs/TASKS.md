@@ -916,6 +916,17 @@ T05 以降の画面タスクは常に実データで動作確認できる。
 | ブランチ | `feature/T23-chat-refinement` |
 | 状態 | 完了 |
 
+### T24: Google OAuth ログイン
+
+| 項目 | 内容 |
+|---|---|
+| 概要 | 既存のメール＋パスワードに加え、Google OAuth でログイン/登録できるようにする（ユーザー指示 2026-07-05） |
+| 主な作業内容 | ① signInWithGoogle（Server Action・redirectTo をリクエストのホストから組み立て・next はサニタイズ）② /auth/callback Route Handler（exchangeCodeForSession→安全な next へ）③ GoogleSignInButton（素の form・クライアント JS 不要）を login/signup に配置 ④ oauthErrorMessage＋/login?error=oauth の表示 ⑤ SETUP.md に Google/Supabase の設定手順 |
+| 受け入れ条件 | FR-04（メール等でログイン）に Google OAuth を追加 |
+| 依存タスク | T08 |
+| ブランチ | `feature/T24-google-oauth` |
+| 状態 | 完了（コード。Google/Supabase 側の OAuth 設定は SETUP §3 の手順で各自実施） |
+
 ---
 
 ## 3. 受け入れ条件カバレッジ対応表
