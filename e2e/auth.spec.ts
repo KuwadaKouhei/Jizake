@@ -23,7 +23,10 @@ test.describe("導線② ログイン（安定動線）", () => {
     ).toBeVisible();
     await expect(page.getByLabel("メールアドレス")).toBeVisible();
     await expect(page.getByLabel("パスワード")).toBeVisible();
-    await expect(page.getByRole("button", { name: "ログイン" })).toBeVisible();
+    // 「Google でログイン」ボタンとも共存するため exact でメール認証の送信ボタンに限定（T24）。
+    await expect(
+      page.getByRole("button", { name: "ログイン", exact: true }),
+    ).toBeVisible();
     // 新規登録への導線がある。
     await expect(
       page.getByRole("link", { name: "新規登録" }).first(),
@@ -85,7 +88,7 @@ test.describe("導線② ログイン（フルフロー・要 Supabase Auth）",
     await page.goto("/login");
     await page.getByLabel("メールアドレス").fill(email);
     await page.getByLabel("パスワード").fill(password);
-    await page.getByRole("button", { name: "ログイン" }).click();
+    await page.getByRole("button", { name: "ログイン", exact: true }).click();
     // ログイン成功ならヘッダに「ログアウト」、失敗（Confirm email 未確認等）なら role="alert"。
     // どちらも観測可能な要素で待つ（networkidle を避ける。REVIEW T16 CODE C-3）。
     await expect(
