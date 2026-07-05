@@ -44,7 +44,7 @@ export type AuditRow = {
   sakeId: string;
   sakeName: string;
   breweryName: string;
-  result: "adopted" | "no_match" | "skipped_existing";
+  result: "adopted" | "no_match" | "skipped_existing" | "error";
   itemName: string;
   imageUrl: string;
 };
@@ -55,6 +55,8 @@ export type ImportImagesSummary = {
   noMatch: number;
   skippedExisting: number;
   rakutenUrlFilled: number;
+  /** 楽天 API エラー等でスキップした件数（1 件の失敗で全体を止めない。監査 CSV に記録）。 */
+  errors: number;
 };
 
 function parseArgs(argv: readonly string[]): CliOptions {
@@ -140,6 +142,7 @@ export async function importRakutenImages(
     noMatch: 0,
     skippedExisting: 0,
     rakutenUrlFilled: 0,
+    errors: 0,
   };
   const audit: AuditRow[] = [];
   let requested = false;
@@ -164,7 +167,26 @@ export async function importRakutenImages(
     }
     requested = true;
 
-    const items = await searchFn(`${target.name} ${target.breweryName}`);
+    // 1 銘柄の失敗（楽天 API の一時エラー・不正キーワード等）で全体を止めない。
+    // エラーは監査に記録して次の銘柄へ進む（3,000 件超のバッチを 1 件で落とさない）。
+    let items: RakutenItemCandidate[];
+    try {
+      items = await searchFn(`${target.name} ${target.breweryName}`);
+    } catch (error) {
+      summary.errors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`  スキップ（API エラー）: ${target.name} — ${message}`);
+      audit.push({
+        sakeId: target.id,
+        sakeName: target.name,
+        breweryName: target.breweryName,
+        result: "error",
+        itemName: message.slice(0, 200),
+        imageUrl: "",
+      });
+      continue;
+    }
+
     const matched = selectBestItem(
       { name: target.name, breweryName: target.breweryName },
       items,
@@ -213,7 +235,7 @@ export async function importRakutenImages(
 function logSummary(summary: ImportImagesSummary): void {
   console.log(`銘柄画像の取得が完了しました（対象 ${summary.targets} 件）`);
   console.log(
-    `  採用 ${summary.adopted} 件 / 照合不成立 ${summary.noMatch} 件 / 取得済みスキップ ${summary.skippedExisting} 件`,
+    `  採用 ${summary.adopted} 件 / 照合不成立 ${summary.noMatch} 件 / 取得済みスキップ ${summary.skippedExisting} 件 / エラー ${summary.errors} 件`,
   );
   console.log(`  楽天購入リンクの補完: ${summary.rakutenUrlFilled} 件`);
   console.log(`  監査ログ: ${AUDIT_CSV_PATH}（照合結果の目視確認用）`);

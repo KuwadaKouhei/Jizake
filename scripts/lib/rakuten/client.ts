@@ -85,11 +85,18 @@ export async function searchSakeItems(
   keyword: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<RakutenItemCandidate[]> {
+  // 楽天 API は 2 文字未満のキーワードを wrong_parameter で弾く。
+  // 極端に短い銘柄名（1 文字等）は検索しても意味がないので空扱いにする（400 を出さない）。
+  const trimmed = keyword.trim();
+  if (trimmed.replace(/\s+/gu, "").length < 2) {
+    return [];
+  }
+
   const url = new URL(ENDPOINT);
   url.searchParams.set("applicationId", credentials.applicationId);
   url.searchParams.set("accessKey", credentials.accessKey);
   // keyword は API 上限 128 文字（UTF-8）。銘柄名＋蔵元名で超えることは稀だが防御的に切る
-  url.searchParams.set("keyword", keyword.slice(0, 128));
+  url.searchParams.set("keyword", trimmed.slice(0, 128));
   url.searchParams.set("genreId", SAKE_GENRE_ID);
   url.searchParams.set("hits", String(HITS_PER_QUERY));
   url.searchParams.set("formatVersion", "2");
