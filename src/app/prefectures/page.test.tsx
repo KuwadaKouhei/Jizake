@@ -11,8 +11,8 @@ function renderPage() {
   return new DOMParser().parseFromString(markup, "text/html");
 }
 
-describe("PrefecturesIndexPage", () => {
-  it("47 都道府県それぞれへのリンクを表示する（FR-07 選択 UI）", () => {
+describe("PrefecturesIndexPage（日本地図の県選択 UI・T19）", () => {
+  it("47 都道府県それぞれへのリンク（SVG 地図）を表示する（FR-07 選択 UI）", () => {
     const doc = renderPage();
 
     for (const prefecture of PREFECTURES) {
@@ -20,16 +20,20 @@ describe("PrefecturesIndexPage", () => {
         `a[href="/prefectures/${prefecture.code}"]`,
       );
       expect(link, `link for ${prefecture.name}`).not.toBeNull();
+      // アクセシブルネーム（aria-label）と <title>（ツールチップ）の両方で県名を持つ
+      expect(link?.getAttribute("aria-label")).toBe(prefecture.name);
       expect(link?.textContent).toContain(prefecture.name);
     }
   });
 
-  it("地方の見出しを表示する", () => {
+  it("リンクは 47 個ちょうど（重複導線を作らない。E2E の前提）", () => {
     const doc = renderPage();
-    const text = doc.body.textContent ?? "";
+    expect(doc.querySelectorAll('a[href^="/prefectures/"]')).toHaveLength(47);
+  });
 
-    expect(text).toContain("北海道・東北");
-    expect(text).toContain("関東");
-    expect(text).toContain("九州・沖縄");
+  it("各県リンクは描画パス（県の形）を持つ", () => {
+    const doc = renderPage();
+    const tokyo = doc.querySelector('a[href="/prefectures/13"]');
+    expect(tokyo?.querySelectorAll("path").length).toBeGreaterThan(0);
   });
 });
