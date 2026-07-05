@@ -24,10 +24,13 @@ export default function ChatPage() {
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">
-          日本酒をチャットで相談
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <span className="h-6 w-[3px] flex-none bg-primary" aria-hidden />
+          <h1 className="font-heading text-2xl font-bold tracking-wide">
+            日本酒をチャットで相談
+          </h1>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
           好みを教えていただければ、登録されている日本酒からおすすめをご提案します。
         </p>
       </div>

@@ -42,9 +42,13 @@ export function ChatComposer({
           }
         }}
         placeholder="例: 辛口で食事に合う日本酒を探しています"
-        className="min-h-[2.5rem] flex-1 resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="min-h-[2.5rem] flex-1 resize-y rounded-sm border border-primary-foreground/25 bg-primary-foreground/10 px-3 py-2 text-sm text-primary-foreground placeholder:text-primary-foreground/50 outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       />
-      <Button type="submit" disabled={disabled || value.trim().length === 0}>
+      <Button
+        type="submit"
+        disabled={disabled || value.trim().length === 0}
+        className="h-auto self-stretch bg-gold px-4 text-gold-foreground hover:bg-gold/90"
+      >
         送信
       </Button>
     </form>

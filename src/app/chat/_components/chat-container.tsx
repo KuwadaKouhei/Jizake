@@ -40,7 +40,8 @@ export function ChatContainer() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    // 「相談の間」— 藍のパネル。応答は金の引用線、ユーザー発話は生成り（1c）。
+    <div className="flex flex-col gap-4 rounded-sm bg-primary p-4 text-primary-foreground sm:p-5">
       <ChatMessages messages={messages} status={status} />
 
       {/*
@@ -52,7 +53,7 @@ export function ChatContainer() {
       {error ? (
         <p
           role="alert"
-          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-sm border border-destructive/40 bg-destructive/15 px-3 py-2 text-sm text-primary-foreground"
         >
           チャットの応答でエラーが発生しました。時間をおいて再度お試しください。
         </p>

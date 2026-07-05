@@ -5,10 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import RootLayout, { metadata } from "@/app/layout";
 
 // next/font/google はビルド時プラグイン前提のため、テストでは固定値を返すモックに差し替える
-// （TEST_PHILOSOPHY: 自作モジュールはモックしない。これは外部 FW 境界のモック）
+// （TEST_PHILOSOPHY: 自作モジュールはモックしない。これは外部 FW 境界のモック）。
+// フォントは「藍染めの世界」テーマ（明朝＝Shippori Mincho / 角ゴ＝Zen Kaku Gothic New /
+// 等幅＝IBM Plex Mono）に差し替え済み。
 vi.mock("next/font/google", () => ({
-  Geist: () => ({ variable: "--font-sans", className: "" }),
-  Geist_Mono: () => ({ variable: "--font-geist-mono", className: "" }),
+  Zen_Kaku_Gothic_New: () => ({ variable: "--font-sans", className: "" }),
+  Shippori_Mincho: () => ({ variable: "--font-heading", className: "" }),
+  IBM_Plex_Mono: () => ({ variable: "--font-mono", className: "" }),
 }));
 
 // SiteHeader は async Server Component（認証状態を取得）になったため、
@@ -16,6 +19,12 @@ vi.mock("next/font/google", () => ({
 // ヘッダー本体（ログイン状態別表示）は site-header.test.tsx で検証する。
 vi.mock("@/components/site-header", () => ({
   SiteHeader: () => <header>Jizake</header>,
+}));
+
+// SiteBottomNav は usePathname を使うクライアント部品。RootLayout の SSR 出力を
+// app router コンテキスト無しで検証できるよう空スタブに差し替える（挙動は本体側で担保）。
+vi.mock("@/components/site-bottom-nav", () => ({
+  SiteBottomNav: () => null,
 }));
 
 // RootLayout は <html> ごと返すため、DOM へのマウントではなく

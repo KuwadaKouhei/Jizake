@@ -14,14 +14,21 @@ export function SakeTagList({ tags }: { tags: SakeTagSummary[] }) {
 
   return (
     <section aria-labelledby="sake-tags-heading">
-      <h2 id="sake-tags-heading" className="mb-2 text-sm font-semibold">
+      <h2
+        id="sake-tags-heading"
+        className="mb-2 font-heading text-sm font-semibold tracking-wide"
+      >
         タグ
       </h2>
       <ul className="flex flex-wrap gap-2">
         {tags.map((tag) => (
           <li
             key={tag.id}
-            className="rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground"
+            className={
+              tag.category === "type"
+                ? "rounded-sm bg-primary px-3 py-1 text-sm text-primary-foreground"
+                : "rounded-sm border border-border px-3 py-1 text-sm text-secondary-foreground"
+            }
           >
             {tag.name}
           </li>

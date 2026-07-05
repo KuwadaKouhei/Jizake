@@ -27,9 +27,11 @@ export function ChatMessages({
 }) {
   if (messages.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-6 text-center">
-        <p className="text-base font-medium">どんなお酒を求めていますか？</p>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="px-2 py-6 text-center">
+        <p className="font-heading text-base tracking-[0.14em] text-primary-foreground">
+          どんなお酒を求めていますか？
+        </p>
+        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-primary-foreground/70">
           味わいの好み・予算・産地・飲むシーンなどを教えてください。数問のやり取りで
           おすすめの日本酒をご提案します。
         </p>
@@ -45,7 +47,7 @@ export function ChatMessages({
         </li>
       ))}
       {status === "submitted" ? (
-        <li aria-live="polite" className="text-sm text-muted-foreground">
+        <li aria-live="polite" className="text-sm text-primary-foreground/70">
           考えています…
         </li>
       ) : null}
@@ -88,8 +90,8 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
     <div
       className={
         isUser
-          ? "ml-auto max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
-          : "mr-auto max-w-full"
+          ? "ml-auto max-w-[85%] rounded-sm bg-primary-foreground px-3 py-2 text-sm text-primary"
+          : "mr-auto max-w-[90%] border-l-2 border-gold pl-3.5 text-primary-foreground"
       }
     >
       {text.length > 0 ? (
@@ -142,7 +144,9 @@ function ProposedSakes({ sakes }: ProposedSakesData) {
   }
   return (
     <div className="mt-3">
-      <p className="mb-2 text-sm font-medium">おすすめの日本酒</p>
+      <p className="mb-2 font-heading text-sm font-medium tracking-wide text-primary-foreground">
+        おすすめの日本酒
+      </p>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {sakes.map((sake) => (
           <li key={sake.id}>
