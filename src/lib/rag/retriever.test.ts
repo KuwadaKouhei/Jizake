@@ -12,6 +12,7 @@ import {
   combineScore,
   type EmbedQueryFn,
   retrieveSakeCandidates,
+  summarizeFilterFacets,
   TAG_WEIGHT,
   VECTOR_WEIGHT,
 } from "./retriever";
@@ -503,5 +504,60 @@ describe("ANN 経路 × タグ経路の分離（B-1・機能等価）", () => {
     expect(occurrences[0].score).toBeCloseTo(
       VECTOR_WEIGHT * 1 + TAG_WEIGHT * 1,
     );
+  });
+});
+
+describe("summarizeFilterFacets（該当件数＋実在ファセット。T23）", () => {
+  it("条件に一致する総数と、集合内の味タグ分布（要求済みタグ除く）を返す", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    const a = await seedSake(breweryId, "酒A");
+    const b = await seedSake(breweryId, "酒B");
+    const c = await seedSake(breweryId, "酒C");
+    // A: 辛口・淡麗 / B: 辛口・華やか / C: 甘口
+    await tagSake(a, "辛口");
+    await tagSake(a, "淡麗");
+    await tagSake(b, "辛口");
+    await tagSake(b, "華やか");
+    await tagSake(c, "甘口");
+
+    const summary = await summarizeFilterFacets(orm, { tagNames: ["辛口"] });
+
+    // 辛口は A・B の 2 件。
+    expect(summary.total).toBe(2);
+    // 辛口集合の中の次の絞り込み候補は 淡麗(1)・華やか(1)。要求済みの「辛口」は出ない。
+    // 同数の並びは name のコードポイント昇順（淡 U+6DE1 < 華 U+83EF）。
+    expect(summary.narrowingTags).toEqual([
+      { name: "淡麗", count: 1 },
+      { name: "華やか", count: 1 },
+    ]);
+  });
+
+  it("条件なしなら全銘柄が対象になり、0 件条件では total=0・候補なし", async () => {
+    const breweryId = await seedBrewery("旭酒造", "35");
+    const a = await seedSake(breweryId, "酒A");
+    await tagSake(a, "辛口");
+
+    const all = await summarizeFilterFacets(orm, {});
+    expect(all.total).toBe(1);
+    expect(all.narrowingTags).toEqual([{ name: "辛口", count: 1 }]);
+
+    const none = await summarizeFilterFacets(orm, {
+      tagNames: ["存在しない味"],
+    });
+    expect(none.total).toBe(0);
+    expect(none.narrowingTags).toEqual([]);
+  });
+
+  it("都道府県の絞り込みも件数・ファセットに反映される", async () => {
+    const yamaguchi = await seedBrewery("旭酒造", "35");
+    const niigata = await seedBrewery("八海醸造", "15");
+    const a = await seedSake(yamaguchi, "酒A");
+    const b = await seedSake(niigata, "酒B");
+    await tagSake(a, "華やか");
+    await tagSake(b, "淡麗");
+
+    const summary = await summarizeFilterFacets(orm, { prefectureCode: "15" });
+    expect(summary.total).toBe(1);
+    expect(summary.narrowingTags).toEqual([{ name: "淡麗", count: 1 }]);
   });
 });

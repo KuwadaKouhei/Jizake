@@ -3,7 +3,11 @@ import { z } from "zod";
 
 import { MAX_PROPOSED_CANDIDATES } from "@/lib/ai/prompts";
 import type { SakeSummary } from "@/lib/db/queries/sakes";
-import { retrieve as defaultRetrieve } from "@/lib/rag/retriever";
+import {
+  retrieve as defaultRetrieve,
+  summarizeFilters as defaultSummarizeFilters,
+  type RetrieveFilterSummary,
+} from "@/lib/rag/retriever";
 import { validateProposedSakeIds as defaultValidateProposedSakeIds } from "@/lib/rag/validate-proposed";
 
 /**
@@ -143,6 +147,9 @@ export const proposeSakeInputSchema = z.object({
 /** retriever の注入口（本番は src/lib/rag の retrieve、テストはフェイク）。 */
 export type RetrieveFn = typeof defaultRetrieve;
 
+/** 絞り込み要約（件数＋実在ファセット）の注入口（本番は summarizeFilters）。 */
+export type SummarizeFiltersFn = typeof defaultSummarizeFilters;
+
 /** DB 存在検証の注入口（本番は validateProposedSakeIds、テストはフェイク）。 */
 export type ValidateProposedSakeIdsFn = typeof defaultValidateProposedSakeIds;
 
@@ -160,6 +167,8 @@ export type CreateChatToolsDeps = {
   collectedProposals?: SakeSummary[];
   /** ハイブリッド検索（既定は本番 retriever）。 */
   retrieve?: RetrieveFn;
+  /** 絞り込み要約（該当件数＋実在する次の絞り込み候補。既定は本番 summarizeFilters）。 */
+  summarizeFilters?: SummarizeFiltersFn;
   /** 提案 ID の DB 存在検証（既定は本番 validateProposedSakeIds）。 */
   validateProposedSakeIds?: ValidateProposedSakeIdsFn;
 };
@@ -175,23 +184,47 @@ export function createChatTools({
   writer,
   collectedProposals,
   retrieve = defaultRetrieve,
+  summarizeFilters = defaultSummarizeFilters,
   validateProposedSakeIds = defaultValidateProposedSakeIds,
 }: CreateChatToolsDeps) {
   return {
     searchSake: tool({
       description:
-        "ヒアリングで分かった好みを検索条件に変換し、アプリの日本酒データベースから候補を検索する。提案してよいのはここで返る銘柄だけ。",
+        "ヒアリングで分かった好みを検索条件に変換し、アプリの日本酒データベースから候補を検索する。提案してよいのはここで返る銘柄だけ。total は条件に一致する総件数、narrowingTags は「その条件で実際に存在する」次の絞り込み候補（味タグと件数）で、次の質問の選択肢はこの中から出すこと。",
       inputSchema: searchSakeInputSchema,
-      async execute(input): Promise<{ candidates: SearchSakeResultItem[] }> {
-        const candidates = await retrieve({
-          freeText: input.freeText,
-          tagNames: input.tagNames,
-          prefectureCode: input.prefectureCode,
-          priceRange: input.priceRange,
-          limit: MAX_PROPOSED_CANDIDATES,
-        });
+      async execute(input): Promise<{
+        total: number;
+        candidates: SearchSakeResultItem[];
+        narrowingTags: RetrieveFilterSummary["narrowingTags"];
+      }> {
+        // 検索（候補上位）と絞り込み要約（総件数・実在ファセット）を並行で取得する。
+        // 要約は段階的ヒアリング（T23）の補助情報なので、失敗しても検索自体は返す
+        // （候補件数を total の代わりにする縮退。ストリームを落とさない）。
+        const [candidates, summary] = await Promise.all([
+          retrieve({
+            freeText: input.freeText,
+            tagNames: input.tagNames,
+            prefectureCode: input.prefectureCode,
+            priceRange: input.priceRange,
+            limit: MAX_PROPOSED_CANDIDATES,
+          }),
+          (async () =>
+            summarizeFilters({
+              tagNames: input.tagNames,
+              prefectureCode: input.prefectureCode,
+              priceRange: input.priceRange,
+            }))().catch((error: unknown) => {
+            console.warn(
+              "searchSake: 絞り込み要約の取得に失敗しました（検索は継続）:",
+              error instanceof Error ? error.message : String(error),
+            );
+            return null;
+          }),
+        ]);
+
         // LLM には ID と名前・産地・タグだけを返す（スコア等の内部値は渡さない）。
         return {
+          total: summary?.total ?? candidates.length,
           candidates: candidates.map((c) => ({
             sakeId: c.sake.id,
             name: c.sake.name,
@@ -199,6 +232,7 @@ export function createChatTools({
             prefectureCode: c.sake.prefectureCode,
             tagNames: c.sake.tags.map((t) => t.name),
           })),
+          narrowingTags: summary?.narrowingTags ?? [],
         };
       },
     }),

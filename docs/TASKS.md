@@ -905,6 +905,17 @@ T05 以降の画面タスクは常に実データで動作確認できる。
 | ブランチ | `feature/T22-chat-typewriter` |
 | 状態 | 完了 |
 
+### T23: チャット応答の品質改善（速度・太字表示・段階的絞り込み）
+
+| 項目 | 内容 |
+|---|---|
+| 概要 | ユーザー指摘 3 点（2026-07-05）への対応。①タイプ表示をゆっくりに ②応答中の `**〜**` を太字として表示（記号を出さない）③ヒアリングを 1 問ずつの段階的絞り込みにし、該当件数と「実在する次の絞り込み候補」を会話に使う（0 件連発の防止） |
+| 主な作業内容 | ① typewriter-text の速度定数を約 20 文字/秒に変更 ② `_lib/bold-segments.ts`（`**` 分割の純関数・閉じ未達は太字継続）＋ typewriter の <strong> 描画（dangerouslySetInnerHTML 不使用のまま）③ retriever に summarizeFilterFacets（総件数＋味タグファセット。PGlite テスト）→ searchSake ツールが total / narrowingTags を返す → システムプロンプトを段階的絞り込み方式（1 メッセージ 1 問・件数の共有・narrowingTags からのみ選択肢提示・0 件時は条件を外して再検索・Markdown 記法禁止）に書き換え。MAX_HEARING_QUESTIONS 3→4 |
+| 受け入れ条件 | FR-08 の体験・会話品質向上（捏造防止の二段構えは不変） |
+| 依存タスク | T22 |
+| ブランチ | `feature/T23-chat-refinement` |
+| 状態 | 完了 |
+
 ---
 
 ## 3. 受け入れ条件カバレッジ対応表
