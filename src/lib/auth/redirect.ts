@@ -5,8 +5,11 @@
  * ユニットテスト対象にする（TEST_PHILOSOPHY: 分岐ロジックは純関数で厚く）。
  */
 
-/** 認証が必須のルート（未ログインなら /login へ誘導する）。DESIGN §2.3: /history のみ。 */
-export const PROTECTED_PREFIXES: readonly string[] = ["/history"];
+/**
+ * 認証が必須のルート（未ログインなら /login へ誘導する）。
+ * DESIGN §2.3: /history（履歴）＋ /favorites（お気に入り。T25 / FR-10）。
+ */
+export const PROTECTED_PREFIXES: readonly string[] = ["/history", "/favorites"];
 
 /** ログイン後の既定の遷移先（安全な next が無いとき）。 */
 export const DEFAULT_AFTER_LOGIN = "/";

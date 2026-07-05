@@ -20,6 +20,12 @@ vi.mock("./_components/record-view-trigger", () => ({
   RecordViewTrigger: () => null,
 }));
 
+// お気に入りボタン（Client Component）も Server Action → サーバ専用 client.ts を辿るため、
+// ページ表示ロジックの検証では同様に無効化する（挙動は favorites.test.ts で個別に検証）。
+vi.mock("./_components/favorite-button", () => ({
+  FavoriteButton: () => null,
+}));
+
 // next/navigation の notFound は例外を投げてレンダリングを中断する。挙動を再現する。
 const notFoundError = new Error("NEXT_NOT_FOUND");
 vi.mock("next/navigation", () => ({

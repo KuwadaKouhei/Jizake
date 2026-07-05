@@ -51,6 +51,14 @@ export async function SiteHeader() {
               <>
                 <li className="hidden md:block">
                   <Link
+                    href="/favorites"
+                    className="text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    お気に入り
+                  </Link>
+                </li>
+                <li className="hidden md:block">
+                  <Link
                     href="/history"
                     className="text-muted-foreground transition-colors hover:text-primary"
                   >

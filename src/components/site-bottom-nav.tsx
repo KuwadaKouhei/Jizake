@@ -1,6 +1,6 @@
 "use client";
 
-import { House, MapIcon, MessageCircle, Search } from "lucide-react";
+import { Heart, House, MapIcon, MessageCircle, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -21,6 +21,7 @@ const NAV_ITEMS: readonly {
   { href: "/", label: "ホーム", icon: House },
   { href: "/search", label: "さがす", icon: Search },
   { href: "/prefectures", label: "地酒マップ", icon: MapIcon },
+  { href: "/favorites", label: "お気に入り", icon: Heart },
   { href: "/chat", label: "相談", icon: MessageCircle },
 ];
 
