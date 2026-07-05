@@ -26,12 +26,11 @@ export function ChatMessages({
   status: ChatStatus;
 }) {
   if (messages.length === 0) {
+    // 空状態は最初のヒアリング問いをアシスタントの吹き出し風に見せる（1a）。
     return (
-      <div className="px-2 py-6 text-center">
-        <p className="font-heading text-base tracking-[0.14em] text-primary-foreground">
-          どんなお酒を求めていますか？
-        </p>
-        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-primary-foreground/70">
+      <div className="max-w-[85%] rounded-[4px_16px_16px_16px] bg-muted px-4 py-3">
+        <p className="text-sm font-bold">どんなお酒を求めていますか？</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
           味わいの好み・予算・産地・飲むシーンなどを教えてください。数問のやり取りで
           おすすめの日本酒をご提案します。
         </p>
@@ -47,7 +46,7 @@ export function ChatMessages({
         </li>
       ))}
       {status === "submitted" ? (
-        <li aria-live="polite" className="text-sm text-primary-foreground/70">
+        <li aria-live="polite" className="text-sm text-muted-foreground">
           考えています…
         </li>
       ) : null}
@@ -87,15 +86,26 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
   const text = textParts.map((part) => part.text).join("");
 
   return (
+    // 1a のバブル: ユーザー=藍地に白（右寄せ）、アシスタント=薄グレー地（左寄せ）。
+    // アシスタント側は提案カードを吹き出しの外（下）に積むため、コンテナは素通しにして
+    // テキスト部分だけ吹き出しにする。
     <div
       className={
         isUser
-          ? "ml-auto max-w-[85%] rounded-sm bg-primary-foreground px-3 py-2 text-sm text-primary"
-          : "mr-auto max-w-[90%] border-l-2 border-gold pl-3.5 text-primary-foreground"
+          ? "ml-auto max-w-[85%] rounded-[16px_4px_16px_16px] bg-primary px-4 py-3 text-sm text-primary-foreground"
+          : "mr-auto max-w-full"
       }
     >
       {text.length > 0 ? (
-        <p className="whitespace-pre-wrap text-sm">{text}</p>
+        <p
+          className={
+            isUser
+              ? "whitespace-pre-wrap text-sm"
+              : "w-fit max-w-[85%] rounded-[4px_16px_16px_16px] bg-muted px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
+          }
+        >
+          {text}
+        </p>
       ) : null}
 
       {proposedParts.map((part, index) => (
@@ -126,7 +136,7 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
  */
 function FallbackNotice({ message, searchHref }: FallbackData) {
   return (
-    <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+    <div className="mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
       <p>{message}</p>
       <Link
         href={searchHref ?? "/search"}
@@ -144,9 +154,7 @@ function ProposedSakes({ sakes }: ProposedSakesData) {
   }
   return (
     <div className="mt-3">
-      <p className="mb-2 font-heading text-sm font-medium tracking-wide text-primary-foreground">
-        おすすめの日本酒
-      </p>
+      <p className="mb-2 text-sm font-medium">おすすめの日本酒</p>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {sakes.map((sake) => (
           <li key={sake.id}>

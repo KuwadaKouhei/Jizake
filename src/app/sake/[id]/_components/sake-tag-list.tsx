@@ -1,3 +1,5 @@
+import { tagChipClassName } from "@/components/tag-chip";
+import { cn } from "@/components/ui/cn";
 import type { SakeTagSummary } from "@/lib/db/queries/sakes";
 
 /**
@@ -14,21 +16,17 @@ export function SakeTagList({ tags }: { tags: SakeTagSummary[] }) {
 
   return (
     <section aria-labelledby="sake-tags-heading">
-      <h2
-        id="sake-tags-heading"
-        className="mb-2 font-heading text-sm font-semibold tracking-wide"
-      >
+      <h2 id="sake-tags-heading" className="mb-2 text-sm font-semibold">
         タグ
       </h2>
       <ul className="flex flex-wrap gap-2">
         {tags.map((tag) => (
           <li
             key={tag.id}
-            className={
-              tag.category === "type"
-                ? "rounded-sm bg-primary px-3 py-1 text-sm text-primary-foreground"
-                : "rounded-sm border border-border px-3 py-1 text-sm text-secondary-foreground"
-            }
+            className={cn(
+              "rounded-full px-3 py-1 text-sm",
+              tagChipClassName(tag),
+            )}
           >
             {tag.name}
           </li>

@@ -19,8 +19,8 @@ const NAV_ITEMS: readonly {
   icon: typeof House;
 }[] = [
   { href: "/", label: "ホーム", icon: House },
-  { href: "/search", label: "検索", icon: Search },
-  { href: "/prefectures", label: "四十七県", icon: MapIcon },
+  { href: "/search", label: "さがす", icon: Search },
+  { href: "/prefectures", label: "地酒マップ", icon: MapIcon },
   { href: "/chat", label: "相談", icon: MessageCircle },
 ];
 

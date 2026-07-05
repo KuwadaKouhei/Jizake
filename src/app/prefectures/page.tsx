@@ -41,7 +41,7 @@ export default function PrefecturesIndexPage() {
                 <li key={prefecture.code}>
                   <Link
                     href={`/prefectures/${prefecture.code}`}
-                    className="block rounded-sm border border-border bg-card px-3 py-2 text-sm transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="block rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors hover:border-primary/50 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                   >
                     {prefecture.name}
                   </Link>

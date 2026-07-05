@@ -6,12 +6,9 @@ import RootLayout, { metadata } from "@/app/layout";
 
 // next/font/google はビルド時プラグイン前提のため、テストでは固定値を返すモックに差し替える
 // （TEST_PHILOSOPHY: 自作モジュールはモックしない。これは外部 FW 境界のモック）。
-// フォントは「藍染めの世界」テーマ（明朝＝Shippori Mincho / 角ゴ＝Zen Kaku Gothic New /
-// 等幅＝IBM Plex Mono）に差し替え済み。
+// フォントは「淡 — 白×藍」テーマ（角ゴ＝Zen Kaku Gothic New の 1 書体）に差し替え済み。
 vi.mock("next/font/google", () => ({
   Zen_Kaku_Gothic_New: () => ({ variable: "--font-sans", className: "" }),
-  Shippori_Mincho: () => ({ variable: "--font-heading", className: "" }),
-  IBM_Plex_Mono: () => ({ variable: "--font-mono", className: "" }),
 }));
 
 // SiteHeader は async Server Component（認証状態を取得）になったため、

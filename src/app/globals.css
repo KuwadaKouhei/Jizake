@@ -8,10 +8,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-heading: var(--font-heading);
-  --font-mono: var(--font-mono);
-  --color-gold: var(--gold);
-  --color-gold-foreground: var(--gold-foreground);
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,81 +48,77 @@
 }
 
 /*
- * Jizake「藍染めの世界」テーマ（Claude Design 1c）。
- * 藍 #1e3250 / 生成り紙 #f2efe6 / クリーム #efe9da / 金 #c9a24b / 罫線 #d8d2c2。
- * 角丸は控えめ（鋭い和の面）。見出しは明朝（--font-heading）。
+ * Jizake「淡 — 白×藍」テーマ（Claude Design 2a/1a）。
+ * 白地に藍 #274a78 のミニマルなポータル。和は色と余白で表現し、
+ * 角丸はゆったり（カード 14px 前後・入力/ボタンはピル形）。書体は角ゴシックのみ。
  */
 :root {
-  --background: #f2efe6;
-  --foreground: #252c36;
-  --card: #f8f6ef;
-  --card-foreground: #252c36;
-  --popover: #f8f6ef;
-  --popover-foreground: #252c36;
-  --primary: #1e3250;
-  --primary-foreground: #efe9da;
-  --secondary: #e7e1d2;
-  --secondary-foreground: #40372a;
-  --muted: #e9e3d5;
-  --muted-foreground: #807a6a;
-  --accent: #e4dccb;
-  --accent-foreground: #252c36;
-  --gold: #c9a24b;
-  --gold-foreground: #1e3250;
+  --background: #ffffff;
+  --foreground: #22303e;
+  --card: #ffffff;
+  --card-foreground: #22303e;
+  --popover: #ffffff;
+  --popover-foreground: #22303e;
+  --primary: #274a78;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2f7;
+  --secondary-foreground: #4a6285;
+  --muted: #f4f6f9;
+  --muted-foreground: #6b7683;
+  --accent: #eef2f7;
+  --accent-foreground: #274a78;
   --destructive: #b23b2e;
-  --border: #d8d2c2;
-  --input: #d8d2c2;
-  --ring: #1e3250;
-  --chart-1: #1e3250;
+  --border: #e4e9ef;
+  --input: #d7dee7;
+  --ring: #274a78;
+  --chart-1: #274a78;
   --chart-2: #33608f;
   --chart-3: #5d7a4e;
-  --chart-4: #a24e35;
-  --chart-5: #c9a24b;
-  --radius: 0.15rem;
-  --sidebar: #f8f6ef;
-  --sidebar-foreground: #252c36;
-  --sidebar-primary: #1e3250;
-  --sidebar-primary-foreground: #efe9da;
-  --sidebar-accent: #e4dccb;
-  --sidebar-accent-foreground: #252c36;
-  --sidebar-border: #d8d2c2;
-  --sidebar-ring: #1e3250;
+  --chart-4: #a55744;
+  --chart-5: #8f7a3c;
+  --radius: 0.75rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #22303e;
+  --sidebar-primary: #274a78;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef2f7;
+  --sidebar-accent-foreground: #274a78;
+  --sidebar-border: #e4e9ef;
+  --sidebar-ring: #274a78;
 }
 
 .dark {
-  --background: #1a2a42;
-  --foreground: #efe9da;
-  --card: #22354f;
-  --card-foreground: #efe9da;
-  --popover: #22354f;
-  --popover-foreground: #efe9da;
-  --primary: #efe9da;
-  --primary-foreground: #1e3250;
-  --secondary: #2c405c;
-  --secondary-foreground: #efe9da;
-  --muted: #2c405c;
-  --muted-foreground: #b7b0a0;
-  --accent: #2c405c;
-  --accent-foreground: #efe9da;
-  --gold: #c9a24b;
-  --gold-foreground: #1e3250;
+  --background: #16202e;
+  --foreground: #e8edf3;
+  --card: #1c2a3d;
+  --card-foreground: #e8edf3;
+  --popover: #1c2a3d;
+  --popover-foreground: #e8edf3;
+  --primary: #8fb3e2;
+  --primary-foreground: #16202e;
+  --secondary: #243349;
+  --secondary-foreground: #c3d2e5;
+  --muted: #243349;
+  --muted-foreground: #93a2b4;
+  --accent: #243349;
+  --accent-foreground: #c3d2e5;
   --destructive: #e0836f;
-  --border: rgb(239 233 218 / 18%);
-  --input: rgb(239 233 218 / 22%);
-  --ring: #c9a24b;
-  --chart-1: #7fa8d6;
+  --border: rgb(232 237 243 / 12%);
+  --input: rgb(232 237 243 / 18%);
+  --ring: #8fb3e2;
+  --chart-1: #8fb3e2;
   --chart-2: #33608f;
   --chart-3: #8fae7f;
   --chart-4: #cf8f79;
-  --chart-5: #c9a24b;
-  --sidebar: #22354f;
-  --sidebar-foreground: #efe9da;
-  --sidebar-primary: #c9a24b;
-  --sidebar-primary-foreground: #1e3250;
-  --sidebar-accent: #2c405c;
-  --sidebar-accent-foreground: #efe9da;
-  --sidebar-border: rgb(239 233 218 / 18%);
-  --sidebar-ring: #c9a24b;
+  --chart-5: #c9b06a;
+  --sidebar: #1c2a3d;
+  --sidebar-foreground: #e8edf3;
+  --sidebar-primary: #8fb3e2;
+  --sidebar-primary-foreground: #16202e;
+  --sidebar-accent: #243349;
+  --sidebar-accent-foreground: #c3d2e5;
+  --sidebar-border: rgb(232 237 243 / 12%);
+  --sidebar-ring: #8fb3e2;
 }
 
 @layer base {
@@ -137,11 +130,5 @@
   }
   html {
     @apply font-sans;
-  }
-  /* 見出しは明朝（藍染めの世界の質感）。字間をわずかに開ける。 */
-  h1,
-  h2,
-  h3 {
-    @apply font-heading tracking-wide;
   }
 }

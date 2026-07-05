@@ -75,7 +75,7 @@ export default async function SakeDetailPage({ params }: PageProps) {
           {prefecture ? ` ・ ${prefecture.name}` : null}
         </p>
         {priceLabel ? (
-          <p className="mt-3 inline-block rounded-sm border border-border bg-card px-2.5 py-1 text-sm">
+          <p className="mt-3 inline-block rounded-full bg-muted px-3 py-1 text-sm">
             価格帯: {priceLabel}
           </p>
         ) : null}

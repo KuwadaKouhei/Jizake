@@ -58,7 +58,7 @@ export function AuthForm({
           name="email"
           autoComplete="email"
           required
-          className="h-9 rounded-sm border border-border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-10 rounded-lg border-[1.5px] border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </label>
 
@@ -70,7 +70,7 @@ export function AuthForm({
           autoComplete={passwordAutoComplete}
           required
           minLength={passwordMinLength}
-          className="h-9 rounded-sm border border-border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-10 rounded-lg border-[1.5px] border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         {passwordHint ? (
           <span className="text-xs text-muted-foreground">{passwordHint}</span>
@@ -80,7 +80,7 @@ export function AuthForm({
       {state.error ? (
         <p
           role="alert"
-          className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {state.error}
         </p>
@@ -89,7 +89,7 @@ export function AuthForm({
       {state.notice ? (
         <p
           role="status"
-          className="rounded-sm border border-border bg-accent px-3 py-2 text-sm text-secondary-foreground"
+          className="rounded-lg bg-muted px-3 py-2 text-sm text-secondary-foreground"
         >
           {state.notice}
         </p>
@@ -98,7 +98,7 @@ export function AuthForm({
       <button
         type="submit"
         disabled={pending}
-        className="h-9 rounded-sm bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-60"
+        className="h-10 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-85 disabled:opacity-60"
       >
         {pending ? "処理中…" : submitLabel}
       </button>

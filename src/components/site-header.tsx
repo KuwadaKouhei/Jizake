@@ -7,17 +7,17 @@ import { getCurrentUser } from "@/lib/auth/server";
 const NAV_ITEMS: readonly { href: string; label: string }[] = [
   { href: "/", label: "ホーム" },
   { href: "/search", label: "さがす" },
-  { href: "/prefectures", label: "四十七県" },
-  { href: "/chat", label: "相談の間" },
+  { href: "/prefectures", label: "地酒マップ" },
+  { href: "/chat", label: "チャット相談" },
 ];
 
 /**
  * 全ページ共通ヘッダ。ログイン状態に応じて認証導線を出し分ける（T08 ④）。
  *
- * - 未ログイン: ログイン / 新規登録リンク
+ * - 未ログイン: ログイン（テキスト）＋「はじめる」ピル（新規登録 CTA）
  * - ログイン済み: 履歴リンク＋ログアウト（Server Action フォーム）
  *
- * デザインは Claude Design 1c「藍染めの世界」。ブランドは明朝＋藍。
+ * デザインは Claude Design 2a「淡 — 白×藍」。白地に藍のブランド・ピル形 CTA。
  * 主要ナビはデスクトップで表示し、モバイルは下部タブ（SiteBottomNav）に委ねる。
  *
  * ユーザー取得のため async Server Component。getCurrentUser は認証基盤が
@@ -27,16 +27,16 @@ export async function SiteHeader() {
   const user = await getCurrentUser();
 
   return (
-    <header className="border-b border-border bg-card/80 backdrop-blur">
+    <header className="border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-4 px-4">
         <Link
           href="/"
-          className="font-heading text-xl font-bold tracking-[0.16em] text-primary"
+          className="text-lg font-bold tracking-tight text-primary"
         >
           Jizake
         </Link>
         <nav aria-label="メインナビゲーション">
-          <ul className="flex items-center gap-3 text-sm sm:gap-5">
+          <ul className="flex items-center gap-3 text-sm sm:gap-6">
             {NAV_ITEMS.map((item) => (
               <li key={item.href} className="hidden md:block">
                 <Link
@@ -73,17 +73,17 @@ export async function SiteHeader() {
                 <li>
                   <Link
                     href="/login"
-                    className="rounded-sm border border-border px-3 py-1.5 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                    className="text-muted-foreground transition-colors hover:text-primary"
                   >
                     ログイン
                   </Link>
                 </li>
-                <li className="hidden sm:block">
+                <li>
                   <Link
                     href="/signup"
-                    className="text-muted-foreground transition-colors hover:text-primary"
+                    className="inline-block rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-85"
                   >
-                    新規登録
+                    はじめる
                   </Link>
                 </li>
               </>
