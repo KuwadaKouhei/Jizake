@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { findPrefectureByCode } from "@/lib/constants/prefectures";
@@ -17,6 +18,10 @@ import { SakeTagList } from "./_components/sake-tag-list";
  * DESIGN §2.1 / §5.1: RSC が Drizzle クエリ関数（getSakeDetail）を直接呼ぶ。
  * カタログは更新頻度が低い（バッチ投入時のみ）ため時間ベース再検証で静的寄りに配信する。
  * 存在しない / 不正な id は notFound()（not-found.tsx を表示。T05 ⑤）。
+ *
+ * デザインは Claude Design 3a「淡 — 白×藍」: パンくず → 2 カラム
+ * （本文＝タグ・銘柄名・蔵元・紹介文・購入ピル ／ 右＝味わいレーダーのカード）。
+ * モバイルは縦積み。
  */
 
 // カタログの時間ベース再検証（DESIGN §2.1）
@@ -59,35 +64,86 @@ export default async function SakeDetailPage({ params }: PageProps) {
     : undefined;
 
   return (
-    <article className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
+    <article className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:py-8">
       {/* 実閲覧のマウント時に fire-and-forget で閲覧履歴を記録する（DESIGN §2.4）。
           未ログインはサーバ側で no-op。表示には影響しない。 */}
       <RecordViewTrigger sakeId={sake.id} />
-      <header className="mb-6 border-b pb-6">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          {sake.name}
-        </h1>
-        {sake.reading ? (
-          <p className="mt-1 text-sm text-muted-foreground">{sake.reading}</p>
-        ) : null}
-        <p className="mt-2 text-sm text-muted-foreground">
-          {sake.breweryName}
-          {prefecture ? ` ・ ${prefecture.name}` : null}
-        </p>
-        {priceLabel ? (
-          <p className="mt-3 inline-block rounded-full bg-muted px-3 py-1 text-sm">
-            価格帯: {priceLabel}
-          </p>
-        ) : null}
-      </header>
 
-      <div className="grid gap-8">
-        {sake.description ? (
-          <SakeDescription description={sake.description} />
+      {/* パンくず（3a）: ホーム / さがす / 県 / 銘柄名 */}
+      <nav aria-label="パンくず" className="mb-5 text-xs text-muted-foreground">
+        <ol className="flex flex-wrap items-center gap-1.5">
+          <li>
+            <Link href="/" className="transition-colors hover:text-primary">
+              ホーム
+            </Link>
+          </li>
+          <li aria-hidden>/</li>
+          <li>
+            <Link
+              href="/search"
+              className="transition-colors hover:text-primary"
+            >
+              さがす
+            </Link>
+          </li>
+          {prefecture ? (
+            <>
+              <li aria-hidden>/</li>
+              <li>
+                <Link
+                  href={`/prefectures/${prefecture.code}`}
+                  className="transition-colors hover:text-primary"
+                >
+                  {prefecture.name}
+                </Link>
+              </li>
+            </>
+          ) : null}
+          <li aria-hidden>/</li>
+          <li aria-current="page" className="text-primary">
+            {sake.name}
+          </li>
+        </ol>
+      </nav>
+
+      <div className="grid items-start gap-8 lg:grid-cols-[1fr_21rem] lg:gap-10">
+        {/* 本文カラム */}
+        <div>
+          <SakeTagList tags={sake.tags} />
+          <header className="mt-3">
+            <h1 className="text-3xl leading-snug font-bold tracking-tight sm:text-4xl">
+              {sake.name}
+            </h1>
+            {sake.reading ? (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {sake.reading}
+              </p>
+            ) : null}
+            <p className="mt-2 text-sm text-muted-foreground">
+              {sake.breweryName}
+              {prefecture ? ` ・ ${prefecture.name}` : null}
+            </p>
+            {priceLabel ? (
+              <p className="mt-3 inline-block rounded-full bg-muted px-3 py-1 text-sm">
+                価格帯: {priceLabel}
+              </p>
+            ) : null}
+          </header>
+
+          <div className="mt-6 grid gap-6">
+            {sake.description ? (
+              <SakeDescription description={sake.description} />
+            ) : null}
+            <ExternalLinks sake={sake} />
+          </div>
+        </div>
+
+        {/* 味わいレーダー（右カード。モバイルは本文の下に縦積み） */}
+        {sake.flavor ? (
+          <aside>
+            <FlavorChartView flavor={sake.flavor} />
+          </aside>
         ) : null}
-        <SakeTagList tags={sake.tags} />
-        {sake.flavor ? <FlavorChartView flavor={sake.flavor} /> : null}
-        <ExternalLinks sake={sake} />
       </div>
     </article>
   );
