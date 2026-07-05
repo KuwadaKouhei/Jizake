@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { cn } from "@/components/ui/cn";
+import { SakeImagePlaceholder } from "@/components/sake-image-placeholder";
 
 import { findPrefectureByCode } from "@/lib/constants/prefectures";
 import { findPriceRangeLabel } from "@/lib/constants/price-ranges";
@@ -109,20 +109,12 @@ export default async function SakeDetailPage({ params }: PageProps) {
         </ol>
       </nav>
 
-      <div
-        className={cn(
-          "grid items-start gap-8 lg:gap-10",
-          // 画像がある銘柄は 3a どおり「画像｜本文｜レーダー」の 3 カラム、
-          // 無い銘柄は従来の 2 カラム（画像枠で誤魔化さない。FR-09）
-          sake.imageUrl
-            ? "lg:grid-cols-[17rem_1fr_20rem]"
-            : "lg:grid-cols-[1fr_21rem]",
-        )}
-      >
-        {/* パッケージ画像（楽天市場の商品画像。出典と商品ページへの導線を添える） */}
-        {sake.imageUrl ? (
-          <figure className="mx-auto w-full max-w-xs lg:mx-0">
-            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-white">
+      <div className="grid items-start gap-8 lg:grid-cols-[17rem_1fr_20rem] lg:gap-10">
+        {/* パッケージ画像（3a: 画像｜本文｜レーダー）。実画像には出典と商品ページ導線を
+            添え、未取得の銘柄は共通の No Image プレースホルダを出す（FR-09・T18） */}
+        <figure className="mx-auto w-full max-w-xs lg:mx-0">
+          <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-white">
+            {sake.imageUrl ? (
               <Image
                 src={sake.imageUrl}
                 alt={`${sake.name}の商品画像`}
@@ -131,7 +123,11 @@ export default async function SakeDetailPage({ params }: PageProps) {
                 className="object-contain p-4"
                 priority
               />
-            </div>
+            ) : (
+              <SakeImagePlaceholder />
+            )}
+          </div>
+          {sake.imageUrl ? (
             <figcaption className="mt-2 text-center text-xs text-muted-foreground">
               画像:{" "}
               {sake.rakutenUrl ? (
@@ -147,8 +143,8 @@ export default async function SakeDetailPage({ params }: PageProps) {
                 "楽天市場"
               )}
             </figcaption>
-          </figure>
-        ) : null}
+          ) : null}
+        </figure>
 
         {/* 本文カラム */}
         <div>
