@@ -26,33 +26,81 @@ import { findPrefectureByCode } from "@/lib/constants/prefectures";
 // カードに載せる主要タグの上限（多すぎると一覧が見づらい）
 const MAX_CARD_TAGS = 3;
 
-export function SakeCard({ sake }: { sake: SakeSummary }) {
+// 段階入場の 1 枚あたり遅延（ms）と、遅延が伸びすぎないための上限枚数。
+const STAGGER_STEP_MS = 45;
+const STAGGER_MAX_ITEMS = 10;
+
+/**
+ * @param index 一覧内の並び順。段階入場（stagger）の遅延に使う。省略時は遅延なし。
+ */
+export function SakeCard({
+  sake,
+  index,
+}: {
+  sake: SakeSummary;
+  index?: number;
+}) {
   const prefecture = findPrefectureByCode(sake.prefectureCode);
   const visibleTags = sake.tags.slice(0, MAX_CARD_TAGS);
+  const delayMs =
+    index === undefined
+      ? undefined
+      : Math.min(index, STAGGER_MAX_ITEMS) * STAGGER_STEP_MS;
 
   return (
-    <div className="h-full overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
+    <div
+      // ホバー演出（豪華）: 浮き上がり＋影＋枠の藍化。transform 系は動きを好む設定のみ。
+      // 段階入場（sake-card-in）は globals の keyframe（reduced-motion では無効）。
+      style={
+        delayMs === undefined ? undefined : { animationDelay: `${delayMs}ms` }
+      }
+      className={cn(
+        "group relative h-full overflow-hidden rounded-xl border border-border bg-card",
+        "transition-[transform,box-shadow,border-color] duration-300 ease-out",
+        "hover:border-primary/40 hover:shadow-xl motion-safe:hover:-translate-y-1.5",
+        // 段階入場。アニメ定義は globals の @media (no-preference) 内なので、
+        // reduced-motion では素通り（クラスは付くが animation 無し＝ちらつかない）。
+        "sake-card-in",
+      )}
+    >
       <Link
         href={`/sake/${sake.id}`}
         className="flex h-full flex-col outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {/* パッケージ画像（楽天 CDN。FR-09）。無い銘柄は共通の No Image プレースホルダ（T18） */}
-        <div className="relative h-28 w-full border-b border-border bg-white sm:h-32">
+        {/* パッケージ画像（楽天 CDN。FR-09）。無い銘柄は共通の No Image プレースホルダ（T18）。
+            ホバーでズーム＋斜めの光沢スイープ（overflow-hidden で枠内にクリップ）。 */}
+        <div className="relative h-28 w-full overflow-hidden border-b border-border bg-white sm:h-32">
           {sake.imageUrl ? (
             <Image
               src={sake.imageUrl}
               alt={`${sake.name}の商品画像`}
               fill
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-              className="object-contain p-2"
+              className="object-contain p-2 transition-transform duration-500 ease-out motion-safe:group-hover:scale-110"
             />
           ) : (
-            <SakeImagePlaceholder />
+            <div className="h-full w-full transition-transform duration-500 ease-out motion-safe:group-hover:scale-105">
+              <SakeImagePlaceholder />
+            </div>
           )}
+          {/* 光沢スイープ（装飾）。ホバーで左→右に光が走る。 */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/45 to-transparent transition-transform duration-700 ease-out motion-safe:group-hover:translate-x-full"
+          />
         </div>
         <div className="flex flex-1 flex-col gap-2 p-4">
           <div>
-            <p className="text-base leading-snug font-bold">{sake.name}</p>
+            <p className="flex items-center gap-1 text-base leading-snug font-bold transition-colors duration-200 group-hover:text-primary">
+              <span>{sake.name}</span>
+              {/* ホバーで現れて滑り込む矢印（装飾） */}
+              <span
+                aria-hidden
+                className="text-primary opacity-0 transition-all duration-200 ease-out group-hover:translate-x-0.5 group-hover:opacity-100 motion-reduce:transition-none"
+              >
+                →
+              </span>
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {sake.breweryName}
               {prefecture ? ` ・ ${prefecture.name}` : null}
@@ -64,7 +112,7 @@ export function SakeCard({ sake }: { sake: SakeSummary }) {
                 <li
                   key={tag.id}
                   className={cn(
-                    "rounded-full px-2.5 py-0.5 text-[0.7rem]",
+                    "rounded-full px-2.5 py-0.5 text-[0.7rem] transition-transform duration-200 motion-safe:group-hover:-translate-y-0.5",
                     tagChipClassName(tag),
                   )}
                 >

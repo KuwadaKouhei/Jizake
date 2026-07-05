@@ -144,9 +144,9 @@ export default async function SearchPage({ searchParams }: PageProps) {
       {result.sakes.length > 0 ? (
         <>
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {result.sakes.map((sake) => (
+            {result.sakes.map((sake, index) => (
               <li key={sake.id}>
-                <SakeCard sake={sake} />
+                <SakeCard sake={sake} index={index} />
               </li>
             ))}
           </ul>
