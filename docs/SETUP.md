@@ -29,15 +29,21 @@ AI Gateway キー発行         → .env.local に AI キー          ┘→ npm
    - リージョン: **Northeast Asia (Tokyo)** 推奨（日本ユーザー向けレイテンシ）
    - データベースパスワードは強固なものを設定し控えておく（接続文字列に含まれる）
 2. 作成完了後（数分）、以下 3 つの値を取得:
-   | 値 | 取得場所 |
+   | 値 | 取得場所（新ダッシュボード） |
    |---|---|
    | Project URL | Project Settings → API → Project URL |
    | anon public key | Project Settings → API → Project API keys → `anon` `public` |
-   | 接続文字列 | Project Settings → Database → Connection string |
+   | 接続文字列（DATABASE_URL） | **画面上部の「Connect」ボタン** → 下記のタブから選ぶ |
 
-   接続文字列は用途でポートが変わる:
-   - **マイグレーション・ローカル開発 → Session pooler（ポート 5432）** を使う（DDL・prepared statement 対応）
-   - **Vercel 本番デプロイ → Transaction pooler（ポート 6543）**（サーバレスの接続枯渇回避。§6 参照）
+   > **注意**: 旧「Settings → Database → Connection string」は廃止された。現在は画面上部（プロジェクト名の近く）の
+   > **緑色の「Connect」ボタン**をクリックし、開いたモーダルの接続文字列を使う。タブは Direct connection /
+   > Transaction pooler / Session pooler の 3 種:
+   - **マイグレーション・ローカル開発 → 「Session pooler」タブ（ポート 5432）**（DDL・prepared statement 対応・IPv4 可）
+   - **Vercel 本番デプロイ → 「Transaction pooler」タブ（ポート 6543）**（サーバレスの接続枯渇回避。§6 参照）
+   - Direct connection は IPv6 のみで家庭ネットワーク等から繋がらないことが多い。ローカルは Session pooler を使う。
+
+   **コピーした接続文字列の `[YOUR-PASSWORD]` を、プロジェクト作成時の DB パスワードに置換する**こと。
+   忘れた場合は Settings → Database → **Reset database password** で再設定できる。
 
 ---
 
