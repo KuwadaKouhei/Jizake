@@ -55,9 +55,9 @@ export default async function HistoryPage() {
         <h2 className="mb-4 text-lg font-semibold">閲覧した日本酒</h2>
         {viewHistory.entries.length > 0 ? (
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {viewHistory.entries.map((entry) => (
+            {viewHistory.entries.map((entry, index) => (
               <li key={entry.id} className="grid gap-1">
-                <SakeCard sake={entry.sake} />
+                <SakeCard sake={entry.sake} index={index} />
                 <p className="px-1 text-xs text-muted-foreground">
                   {formatViewedAt(entry.viewedAt)} 閲覧
                 </p>

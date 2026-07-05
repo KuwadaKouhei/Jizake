@@ -14,9 +14,9 @@ import { recommendReasonLabel } from "../_lib/recommend-reason-label";
 export function RecommendGrid({ items }: { items: RecommendedSake[] }) {
   return (
     <ul className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-      {items.map((item) => (
+      {items.map((item, index) => (
         <li key={item.sake.id} className="grid gap-1">
-          <SakeCard sake={item.sake} />
+          <SakeCard sake={item.sake} index={index} />
           <p className="px-1 text-[0.7rem] text-muted-foreground">
             {recommendReasonLabel(item.reason)}
           </p>
