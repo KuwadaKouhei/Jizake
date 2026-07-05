@@ -40,6 +40,7 @@ export function ChatContainer() {
   }
 
   return (
+    // 淡 — 白×藍（1a）: 白地に藍のユーザー発話・グレーのアシスタント発話のバブル。
     <div className="flex flex-col gap-4">
       <ChatMessages messages={messages} status={status} />
 
@@ -52,7 +53,7 @@ export function ChatContainer() {
       {error ? (
         <p
           role="alert"
-          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           チャットの応答でエラーが発生しました。時間をおいて再度お試しください。
         </p>
