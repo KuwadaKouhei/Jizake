@@ -6,9 +6,9 @@ import { getCurrentUser } from "@/lib/auth/server";
 // ナビ骨格。実装済み機能のみ導線を出す（TASKS 運用ルール）。
 const NAV_ITEMS: readonly { href: string; label: string }[] = [
   { href: "/", label: "ホーム" },
-  { href: "/search", label: "検索" },
-  { href: "/prefectures", label: "地酒を探す" },
-  { href: "/chat", label: "チャットで相談" },
+  { href: "/search", label: "さがす" },
+  { href: "/prefectures", label: "四十七県" },
+  { href: "/chat", label: "相談の間" },
 ];
 
 /**

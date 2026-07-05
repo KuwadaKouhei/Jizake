@@ -25,6 +25,14 @@ import { findPrefectureByCode } from "@/lib/constants/prefectures";
 // カードに載せる主要タグの上限（多すぎると一覧が見づらい）
 const MAX_CARD_TAGS = 3;
 
+/**
+ * 表示バリアント:
+ * - default: 単体カード（角・リング付き）。検索結果・県別・チャット提案用。
+ * - grid: 罫線グリッドのセル（2c「人気の銘柄」）。枠は親のヘアライングリッドが
+ *   引くため、リング・角丸を持たない。銘柄名の縦書きを大きく立てる。
+ */
+type SakeCardVariant = "default" | "grid";
+
 function tagClassName(tag: SakeTagSummary): string {
   // 種別（純米・吟醸など）は藍ベタ、味わい等は罫線チップ（1c のタグ表現）。
   return tag.category === "type"
@@ -32,25 +40,62 @@ function tagClassName(tag: SakeTagSummary): string {
     : "border border-border text-secondary-foreground";
 }
 
-export function SakeCard({ sake }: { sake: SakeSummary }) {
+export function SakeCard({
+  sake,
+  variant = "default",
+}: {
+  sake: SakeSummary;
+  variant?: SakeCardVariant;
+}) {
   const prefecture = findPrefectureByCode(sake.prefectureCode);
   const visibleTags = sake.tags.slice(0, MAX_CARD_TAGS);
+  const isGrid = variant === "grid";
 
   return (
-    <div className="h-full overflow-hidden rounded-sm bg-card ring-1 ring-foreground/10 transition-shadow hover:shadow-md">
+    <div
+      className={cn(
+        "h-full overflow-hidden bg-card",
+        !isGrid &&
+          "rounded-sm ring-1 ring-foreground/10 transition-shadow hover:shadow-md",
+      )}
+    >
       <Link
         href={`/sake/${sake.id}`}
-        className="flex h-full items-stretch outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          "flex h-full items-stretch outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isGrid && "gap-3 p-4 transition-colors hover:bg-accent",
+        )}
       >
-        {/* 縦書き明朝の銘柄名（藍の面に生成りの帯で立てる） */}
-        <div className="flex flex-none items-center justify-center border-r border-border bg-primary/[0.04] px-1.5 py-3">
-          <span className="font-heading text-[0.95rem] leading-tight font-bold tracking-[0.12em] text-primary [writing-mode:vertical-rl]">
+        {/* 縦書き明朝の銘柄名 */}
+        <div
+          className={cn(
+            "flex flex-none items-center justify-center",
+            isGrid
+              ? "items-start"
+              : "border-r border-border bg-primary/[0.04] px-1.5 py-3",
+          )}
+        >
+          <span
+            className={cn(
+              "font-heading leading-tight font-bold [writing-mode:vertical-rl]",
+              isGrid
+                ? "min-h-24 text-lg tracking-[0.14em] text-foreground"
+                : "text-[0.95rem] tracking-[0.12em] text-primary",
+            )}
+          >
             {sake.name}
           </span>
         </div>
 
-        <div className="flex flex-1 flex-col gap-2 px-3 py-3">
-          <p className="text-xs text-muted-foreground">
+        <div
+          className={cn("flex flex-1 flex-col gap-2", !isGrid && "px-3 py-3")}
+        >
+          <p
+            className={cn(
+              "text-muted-foreground",
+              isGrid ? "text-[0.7rem] leading-relaxed" : "text-xs",
+            )}
+          >
             {sake.breweryName}
             {prefecture ? ` ・ ${prefecture.name}` : null}
           </p>
@@ -71,10 +116,12 @@ export function SakeCard({ sake }: { sake: SakeSummary }) {
           ) : null}
         </div>
 
-        <ChevronRight
-          className="my-auto mr-1.5 size-4 flex-none text-muted-foreground/60"
-          aria-hidden
-        />
+        {isGrid ? null : (
+          <ChevronRight
+            className="my-auto mr-1.5 size-4 flex-none text-muted-foreground/60"
+            aria-hidden
+          />
+        )}
       </Link>
     </div>
   );

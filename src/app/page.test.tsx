@@ -56,8 +56,8 @@ describe("Home（ホームの推薦表示）", () => {
     expect(doc.querySelector('a[href="/signup"]')).not.toBeNull();
     // reason 表示。
     expect(doc.body.textContent).toContain("人気の銘柄");
-    // 未ログインは userId=null で呼ばれる。
-    expect(recommend).toHaveBeenCalledWith({ userId: null, limit: 6 });
+    // 未ログインは userId=null で呼ばれる（limit は罫線グリッド 4 列×2 段）。
+    expect(recommend).toHaveBeenCalledWith({ userId: null, limit: 8 });
   });
 
   it("ログインユーザーには『あなたへのおすすめ』見出しと履歴ベース理由を出す", async () => {
@@ -79,8 +79,8 @@ describe("Home（ホームの推薦表示）", () => {
       doc.querySelector('a[href="/sake/d2222222-2222-4222-8222-222222222222"]'),
     ).not.toBeNull();
     expect(doc.body.textContent).toContain("よく見ている「辛口」から");
-    // ログインは userId 付きで呼ばれる。
-    expect(recommend).toHaveBeenCalledWith({ userId: "u1", limit: 6 });
+    // ログインは userId 付きで呼ばれる（limit は罫線グリッド 4 列×2 段）。
+    expect(recommend).toHaveBeenCalledWith({ userId: "u1", limit: 8 });
   });
 
   it("ログイン済みでも中身が全て人気（フォールバック）なら見出しを『人気の日本酒』に倒す", async () => {
