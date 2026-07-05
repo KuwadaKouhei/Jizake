@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AuthForm } from "@/components/auth-form";
+import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { signUp } from "@/lib/auth/actions";
 import { resolveAfterLogin, sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { getCurrentUser } from "@/lib/auth/server";
@@ -32,6 +33,15 @@ export default async function SignupPage({ searchParams }: PageProps) {
   return (
     <section className="mx-auto w-full max-w-sm flex-1 px-4 py-12">
       <h1 className="mb-6 text-2xl font-bold tracking-tight">新規登録</h1>
+
+      <GoogleSignInButton next={next ?? undefined} label="Google で登録" />
+
+      <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        または
+        <span className="h-px flex-1 bg-border" />
+      </div>
+
       <AuthForm
         action={signUp}
         submitLabel="登録する"

@@ -35,3 +35,11 @@ export function signUpErrorMessage(raw: string): string {
 export function confirmationSentMessage(): string {
   return "確認メールを送信しました。メール内のリンクから登録を完了してください。";
 }
+
+/**
+ * OAuth（Google 等）ログインに失敗したときの文言（T24）。
+ * プロバイダ側の詳細（メール未認証・拒否・code 交換失敗など）は出さず汎用化する。
+ */
+export function oauthErrorMessage(): string {
+  return "Google ログインに失敗しました。時間をおいて再度お試しください。";
+}

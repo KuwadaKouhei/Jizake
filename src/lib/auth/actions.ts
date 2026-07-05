@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import {
@@ -9,7 +10,7 @@ import {
   signUpErrorMessage,
 } from "./messages";
 import { createSupabaseServerClient } from "./server";
-import { resolveAfterLogin } from "./redirect";
+import { resolveAfterLogin, sanitizeRedirectPath } from "./redirect";
 import { parseCredentials } from "./validation";
 
 /**
@@ -138,6 +139,53 @@ export async function signIn(
     return { error: result.error };
   }
   redirect(resolveAfterLogin(next));
+}
+
+/**
+ * Google OAuth ログイン開始（T24）。
+ *
+ * Supabase の signInWithOAuth でプロバイダの認可 URL を得て、そこへリダイレクトする。
+ * 認可後、Google は `${origin}/auth/callback?next=...` に戻り、そこで code を
+ * セッションに交換する（src/app/auth/callback/route.ts）。
+ *
+ * セキュリティ:
+ * - redirectTo の origin は「このリクエストのホスト」から組み立てる（外部由来の値を
+ *   信用しない）。Supabase 側の Redirect URLs 許可リストに載っているものだけが有効。
+ * - ログイン後の遷移先 next はアプリ内パスのみ許可（sanitizeRedirectPath）し、
+ *   コールバック URL のクエリに載せる（オープンリダイレクト防止）。
+ */
+export async function signInWithGoogle(formData: FormData): Promise<void> {
+  const next = sanitizeRedirectPath(readNext(formData));
+
+  let supabase;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch {
+    redirect("/login?error=oauth");
+  }
+
+  // このリクエストのホストから origin を組み立てる（プロキシ経由も考慮）。
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "https";
+  const origin = `${proto}://${host}`;
+
+  const callback = new URL("/auth/callback", origin);
+  if (next) {
+    callback.searchParams.set("next", next);
+  }
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: callback.toString() },
+  });
+
+  if (error || !data.url) {
+    redirect("/login?error=oauth");
+  }
+
+  // プロバイダの認可 URL へ送る（外部遷移）。
+  redirect(data.url);
 }
 
 /** ログアウト。ヘッダから呼ばれる。完了後はホームへ遷移。 */

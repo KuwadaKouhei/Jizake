@@ -10,6 +10,7 @@ const { getCurrentUser } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/server", () => ({ getCurrentUser }));
 vi.mock("@/lib/auth/actions", () => ({
   signIn: async () => ({ error: null }),
+  signInWithGoogle: async () => {},
 }));
 
 class RedirectError extends Error {
@@ -40,6 +41,21 @@ describe("LoginPage", () => {
     const html = await render();
     expect(html).toContain('type="email"');
     expect(html).toContain('type="password"');
+  });
+
+  it("Google ログインボタンを表示する（T24）", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    const html = await render();
+    expect(html).toContain("Google でログイン");
+  });
+
+  it("error=oauth のとき OAuth エラー文言を表示する（T24）", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    const element = await LoginPage({
+      searchParams: Promise.resolve({ error: "oauth" }),
+    });
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain("Google ログインに失敗しました");
   });
 
   it("ログイン済みなら遷移先（既定 /）へリダイレクトする", async () => {
