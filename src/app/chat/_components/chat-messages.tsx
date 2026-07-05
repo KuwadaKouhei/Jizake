@@ -8,6 +8,8 @@ import type {
 } from "@/app/api/chat/_lib/tools";
 import { SakeCard } from "@/components/sake-card";
 
+import { TypewriterText } from "./typewriter-text";
+
 /**
  * 会話メッセージ列の表示（TASKS T14 ④）。
  *
@@ -38,11 +40,21 @@ export function ChatMessages({
     );
   }
 
+  // 生成中の「最新のアシスタント発話」だけタイプライター表示する（active）。
+  // それ以外（過去の発話・生成完了後・ユーザー発話）は全文を即時表示する。
+  const isStreaming = status === "streaming" || status === "submitted";
+  const lastIndex = messages.length - 1;
+
   return (
     <ul className="flex flex-col gap-4">
-      {messages.map((message) => (
+      {messages.map((message, index) => (
         <li key={message.id}>
-          <ChatMessageItem message={message} />
+          <ChatMessageItem
+            message={message}
+            active={
+              isStreaming && index === lastIndex && message.role === "assistant"
+            }
+          />
         </li>
       ))}
       {status === "submitted" ? (
@@ -54,7 +66,13 @@ export function ChatMessages({
   );
 }
 
-function ChatMessageItem({ message }: { message: ChatUIMessage }) {
+function ChatMessageItem({
+  message,
+  active,
+}: {
+  message: ChatUIMessage;
+  active: boolean;
+}) {
   const isUser = message.role === "user";
 
   // テキスト（プレーン表示）と提案カード（検証済み）を parts から取り出す。
@@ -104,7 +122,8 @@ function ChatMessageItem({ message }: { message: ChatUIMessage }) {
               : "w-fit max-w-[85%] rounded-[4px_16px_16px_16px] bg-muted px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
           }
         >
-          {text}
+          {/* アシスタント応答は 1 文字ずつ（生成中のみ）。ユーザー発話は即時表示。 */}
+          {isUser ? text : <TypewriterText text={text} active={active} />}
         </p>
       ) : null}
 
