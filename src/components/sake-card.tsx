@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { SakeImagePlaceholder } from "@/components/sake-image-placeholder";
 import { tagChipClassName } from "@/components/tag-chip";
 import { cn } from "@/components/ui/cn";
 import type { SakeSummary } from "@/lib/db/queries/sakes";
@@ -35,9 +36,9 @@ export function SakeCard({ sake }: { sake: SakeSummary }) {
         href={`/sake/${sake.id}`}
         className="flex h-full flex-col outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {/* パッケージ画像（楽天 CDN。FR-09）。無い銘柄は画像枠ごと出さない */}
-        {sake.imageUrl ? (
-          <div className="relative h-28 w-full border-b border-border bg-white sm:h-32">
+        {/* パッケージ画像（楽天 CDN。FR-09）。無い銘柄は共通の No Image プレースホルダ（T18） */}
+        <div className="relative h-28 w-full border-b border-border bg-white sm:h-32">
+          {sake.imageUrl ? (
             <Image
               src={sake.imageUrl}
               alt={`${sake.name}の商品画像`}
@@ -45,8 +46,10 @@ export function SakeCard({ sake }: { sake: SakeSummary }) {
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className="object-contain p-2"
             />
-          </div>
-        ) : null}
+          ) : (
+            <SakeImagePlaceholder />
+          )}
+        </div>
         <div className="flex flex-1 flex-col gap-2 p-4">
           <div>
             <p className="text-base leading-snug font-bold">{sake.name}</p>

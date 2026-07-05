@@ -82,9 +82,10 @@ describe("SakeCard", () => {
     expect(img?.getAttribute("alt")).toContain("獺祭 純米大吟醸 45");
   });
 
-  it("imageUrl が null なら img を描画しない（画像なしレイアウト。FR-09）", () => {
+  it("imageUrl が null なら img は出さず No Image プレースホルダを表示する（FR-09・T18）", () => {
     const doc = renderCard(baseSake);
     expect(doc.querySelector("img")).toBeNull();
+    expect(doc.body.textContent).toContain("NO IMAGE");
   });
 
   it("名称に HTML 断片が含まれてもテキストとして描画する（危険な生 HTML を出さない）", () => {
