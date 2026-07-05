@@ -97,6 +97,8 @@ export const sakes = pgTable(
     officialUrl: text("official_url"),
     amazonUrl: text("amazon_url"),
     rakutenUrl: text("rakuten_url"),
+    // 銘柄画像 URL（楽天市場 API 由来の楽天 CDN URL。FR-09）。NULL=画像なし表示
+    imageUrl: text("image_url"),
     // 価格帯 3 区分（src/lib/constants/price-ranges.ts と CHECK で同期）
     priceRange: text("price_range"),
     // さけのわ全国ランキング順位。推薦コールドスタートのフォールバック

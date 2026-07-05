@@ -16,6 +16,7 @@ const baseSake: SakeSummary = {
   name: "獺祭 純米大吟醸 45",
   breweryName: "旭酒造",
   prefectureCode: "35",
+  imageUrl: null,
   tags: [
     { id: "t1", name: "純米大吟醸", category: "type", source: "manual" },
     { id: "t2", name: "華やか", category: "taste", source: "sakenowa" },
@@ -67,6 +68,23 @@ describe("SakeCard", () => {
 
     expect(doc.querySelectorAll("li")).toHaveLength(3);
     expect(doc.body.textContent).not.toContain("タグ4");
+  });
+
+  it("imageUrl があれば商品画像（img）を描画する（FR-09）", () => {
+    const doc = renderCard({
+      ...baseSake,
+      imageUrl:
+        "https://thumbnail.image.rakuten.co.jp/@0_mall/shop/bottle.jpg?_ex=400x400",
+    });
+
+    const img = doc.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("alt")).toContain("獺祭 純米大吟醸 45");
+  });
+
+  it("imageUrl が null なら img を描画しない（画像なしレイアウト。FR-09）", () => {
+    const doc = renderCard(baseSake);
+    expect(doc.querySelector("img")).toBeNull();
   });
 
   it("名称に HTML 断片が含まれてもテキストとして描画する（危険な生 HTML を出さない）", () => {

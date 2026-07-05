@@ -58,6 +58,8 @@ export type SakeSummary = {
   /** 蔵元名（breweries.name）。信頼できない外部入力としてテキスト表示する */
   breweryName: string;
   prefectureCode: string;
+  /** 銘柄画像 URL（楽天 CDN。FR-09）。null=画像なし表示 */
+  imageUrl: string | null;
   /** 主要タグ（要約表示用。詳細は SakeDetail.tags を使う） */
   tags: SakeTagSummary[];
 };
@@ -214,6 +216,7 @@ export async function selectSakeDetail(
       amazonUrl: sakes.amazonUrl,
       rakutenUrl: sakes.rakutenUrl,
       priceRange: sakes.priceRange,
+      imageUrl: sakes.imageUrl,
       breweryName: breweries.name,
       prefectureCode: breweries.prefectureCode,
       flavorFloral: sakes.flavorFloral,
@@ -239,6 +242,7 @@ export async function selectSakeDetail(
     name: row.name,
     breweryName: row.breweryName,
     prefectureCode: row.prefectureCode,
+    imageUrl: row.imageUrl,
     tags: tagRows,
     reading: row.reading,
     description: row.description,
@@ -309,6 +313,7 @@ export async function selectSakesByPrefecture(
       name: sakes.name,
       breweryName: breweries.name,
       prefectureCode: breweries.prefectureCode,
+      imageUrl: sakes.imageUrl,
     })
     .from(sakes)
     .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
@@ -328,6 +333,7 @@ export async function selectSakesByPrefecture(
       name: row.name,
       breweryName: row.breweryName,
       prefectureCode: row.prefectureCode,
+      imageUrl: row.imageUrl,
       tags: tagsBySakeId.get(row.id) ?? [],
     })),
     total,
@@ -473,6 +479,7 @@ export async function searchSakes(
       name: sakes.name,
       breweryName: breweries.name,
       prefectureCode: breweries.prefectureCode,
+      imageUrl: sakes.imageUrl,
     })
     .from(sakes)
     .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
@@ -492,6 +499,7 @@ export async function searchSakes(
       name: row.name,
       breweryName: row.breweryName,
       prefectureCode: row.prefectureCode,
+      imageUrl: row.imageUrl,
       tags: tagsBySakeId.get(row.id) ?? [],
     })),
     total,

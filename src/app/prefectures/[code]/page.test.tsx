@@ -41,6 +41,7 @@ const sake: SakeSummary = {
   name: "獺祭 純米大吟醸 45",
   breweryName: "旭酒造",
   prefectureCode: "35",
+  imageUrl: null,
   tags: [{ id: "t1", name: "純米大吟醸", category: "type", source: "manual" }],
 };
 

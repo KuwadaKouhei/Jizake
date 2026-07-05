@@ -16,6 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "import:sakenowa": "tsx scripts/import-sakenowa.ts",
+    "import:images": "tsx scripts/import-rakuten-images.ts",
     "seed": "tsx scripts/seed.ts",
     "embed": "tsx scripts/embed.ts",
     "rag:poc": "tsx scripts/rag-poc.ts"

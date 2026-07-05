@@ -20,6 +20,13 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // フレームワーク露出を避ける
   poweredByHeader: false,
+  images: {
+    // 銘柄画像は楽天市場 API 由来の楽天 CDN のみ許可する（FR-09。
+    //  scripts/lib/rakuten/match.ts の RAKUTEN_IMAGE_HOST と同期）
+    remotePatterns: [
+      { protocol: "https", hostname: "thumbnail.image.rakuten.co.jp" },
+    ],
+  },
   async headers() {
     return [
       {

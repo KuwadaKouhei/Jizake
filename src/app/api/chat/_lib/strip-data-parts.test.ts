@@ -17,6 +17,7 @@ const SAKE = {
   name: "獺祭",
   breweryName: "旭酒造",
   prefectureCode: "35",
+  imageUrl: null,
   tags: [],
 };
 
