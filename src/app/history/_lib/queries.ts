@@ -92,6 +92,7 @@ export async function selectViewHistory(
       name: sakes.name,
       breweryName: breweries.name,
       prefectureCode: breweries.prefectureCode,
+      imageUrl: sakes.imageUrl,
     })
     .from(viewHistories)
     .innerJoin(sakes, eq(sakes.id, viewHistories.sakeId))
@@ -115,6 +116,7 @@ export async function selectViewHistory(
         name: row.name,
         breweryName: row.breweryName,
         prefectureCode: row.prefectureCode,
+        imageUrl: row.imageUrl,
         tags: tagsBySakeId.get(row.sakeId) ?? [],
       },
     })),

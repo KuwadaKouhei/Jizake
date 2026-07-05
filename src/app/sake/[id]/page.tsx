@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { cn } from "@/components/ui/cn";
 
 import { findPrefectureByCode } from "@/lib/constants/prefectures";
 import { findPriceRangeLabel } from "@/lib/constants/price-ranges";
@@ -106,7 +109,47 @@ export default async function SakeDetailPage({ params }: PageProps) {
         </ol>
       </nav>
 
-      <div className="grid items-start gap-8 lg:grid-cols-[1fr_21rem] lg:gap-10">
+      <div
+        className={cn(
+          "grid items-start gap-8 lg:gap-10",
+          // 画像がある銘柄は 3a どおり「画像｜本文｜レーダー」の 3 カラム、
+          // 無い銘柄は従来の 2 カラム（画像枠で誤魔化さない。FR-09）
+          sake.imageUrl
+            ? "lg:grid-cols-[17rem_1fr_20rem]"
+            : "lg:grid-cols-[1fr_21rem]",
+        )}
+      >
+        {/* パッケージ画像（楽天市場の商品画像。出典と商品ページへの導線を添える） */}
+        {sake.imageUrl ? (
+          <figure className="mx-auto w-full max-w-xs lg:mx-0">
+            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-white">
+              <Image
+                src={sake.imageUrl}
+                alt={`${sake.name}の商品画像`}
+                fill
+                sizes="(max-width: 1024px) 20rem, 17rem"
+                className="object-contain p-4"
+                priority
+              />
+            </div>
+            <figcaption className="mt-2 text-center text-xs text-muted-foreground">
+              画像:{" "}
+              {sake.rakutenUrl ? (
+                <a
+                  href={sake.rakutenUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 transition-colors hover:text-primary"
+                >
+                  楽天市場の商品ページ
+                </a>
+              ) : (
+                "楽天市場"
+              )}
+            </figcaption>
+          </figure>
+        ) : null}
+
         {/* 本文カラム */}
         <div>
           <SakeTagList tags={sake.tags} />

@@ -254,6 +254,7 @@ async function loadCandidateSakes(
       name: string;
       breweryName: string;
       prefectureCode: string;
+      imageUrl: string | null;
       popularityRank: number | null;
     }
   >
@@ -267,6 +268,7 @@ async function loadCandidateSakes(
       name: sakes.name,
       breweryName: breweries.name,
       prefectureCode: breweries.prefectureCode,
+      imageUrl: sakes.imageUrl,
       popularityRank: sakes.popularityRank,
     })
     .from(sakes)
@@ -279,6 +281,7 @@ async function loadCandidateSakes(
         name: row.name,
         breweryName: row.breweryName,
         prefectureCode: row.prefectureCode,
+        imageUrl: row.imageUrl,
         popularityRank: row.popularityRank,
       },
     ]),
@@ -385,6 +388,7 @@ export async function retrieveSakeCandidates(
           name: sake.name,
           breweryName: sake.breweryName,
           prefectureCode: sake.prefectureCode,
+          imageUrl: sake.imageUrl,
           tags: tagSummaries,
         },
         score: combineScore({

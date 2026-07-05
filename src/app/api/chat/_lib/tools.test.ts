@@ -49,6 +49,7 @@ function makeSummary(id: string, name: string): SakeSummary {
     name,
     breweryName: "テスト酒造",
     prefectureCode: "35",
+    imageUrl: null,
     tags: [
       { id: `tag-${id}`, name: "華やか", category: "taste", source: "manual" },
     ],

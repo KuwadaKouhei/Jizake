@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { tagChipClassName } from "@/components/tag-chip";
@@ -32,30 +33,44 @@ export function SakeCard({ sake }: { sake: SakeSummary }) {
     <div className="h-full overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
       <Link
         href={`/sake/${sake.id}`}
-        className="flex h-full flex-col gap-2 p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-full flex-col outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <div>
-          <p className="text-base leading-snug font-bold">{sake.name}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {sake.breweryName}
-            {prefecture ? ` ・ ${prefecture.name}` : null}
-          </p>
-        </div>
-        {visibleTags.length > 0 ? (
-          <ul className="mt-auto flex flex-wrap gap-1.5 pt-1">
-            {visibleTags.map((tag) => (
-              <li
-                key={tag.id}
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[0.7rem]",
-                  tagChipClassName(tag),
-                )}
-              >
-                {tag.name}
-              </li>
-            ))}
-          </ul>
+        {/* パッケージ画像（楽天 CDN。FR-09）。無い銘柄は画像枠ごと出さない */}
+        {sake.imageUrl ? (
+          <div className="relative h-28 w-full border-b border-border bg-white sm:h-32">
+            <Image
+              src={sake.imageUrl}
+              alt={`${sake.name}の商品画像`}
+              fill
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className="object-contain p-2"
+            />
+          </div>
         ) : null}
+        <div className="flex flex-1 flex-col gap-2 p-4">
+          <div>
+            <p className="text-base leading-snug font-bold">{sake.name}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {sake.breweryName}
+              {prefecture ? ` ・ ${prefecture.name}` : null}
+            </p>
+          </div>
+          {visibleTags.length > 0 ? (
+            <ul className="mt-auto flex flex-wrap gap-1.5 pt-1">
+              {visibleTags.map((tag) => (
+                <li
+                  key={tag.id}
+                  className={cn(
+                    "rounded-full px-2.5 py-0.5 text-[0.7rem]",
+                    tagChipClassName(tag),
+                  )}
+                >
+                  {tag.name}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       </Link>
     </div>
   );

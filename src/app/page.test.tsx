@@ -23,7 +23,14 @@ function recommended(
   reason: RecommendedSake["reason"],
 ): RecommendedSake {
   return {
-    sake: { id, name, breweryName: "旭酒造", prefectureCode: "35", tags: [] },
+    sake: {
+      id,
+      name,
+      breweryName: "旭酒造",
+      prefectureCode: "35",
+      imageUrl: null,
+      tags: [],
+    },
     reason,
   };
 }

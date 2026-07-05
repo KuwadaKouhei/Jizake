@@ -40,3 +40,6 @@ next-env.d.ts
 
 # claude local settings
 .claude/settings.local.json
+
+# 画像照合の監査ログ等の一時出力（import:images）
+tmp/

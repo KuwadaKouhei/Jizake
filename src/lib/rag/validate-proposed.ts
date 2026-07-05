@@ -67,6 +67,7 @@ export async function selectExistingSakes(
       name: sakes.name,
       breweryName: breweries.name,
       prefectureCode: breweries.prefectureCode,
+      imageUrl: sakes.imageUrl,
     })
     .from(sakes)
     .innerJoin(breweries, eq(breweries.id, sakes.breweryId))
@@ -87,6 +88,7 @@ export async function selectExistingSakes(
         name: row.name,
         breweryName: row.breweryName,
         prefectureCode: row.prefectureCode,
+        imageUrl: row.imageUrl,
         tags: tagsBySakeId.get(row.id) ?? [],
       },
     ]),

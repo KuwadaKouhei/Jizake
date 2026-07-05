@@ -83,6 +83,10 @@ npm run seed
 
 # 4) 説明文の埋め込みを生成して sake_embeddings に格納（差分のみ・要 AI_GATEWAY_API_KEY）
 npm run embed
+
+# 5) 銘柄画像・楽天購入リンクを取得（差分のみ・要 RAKUTEN_APP_ID/RAKUTEN_ACCESS_KEY。§4.5）
+#    既定は説明文つき銘柄（seed 分）のみ。--all で全銘柄、--force で再取得
+npm run import:images
 ```
 
 ### pgvector が有効化できない場合
@@ -108,6 +112,22 @@ RAG の埋め込み（text-embedding-3-small）と LLM（Claude Haiku 4.5）は 
 
 > モデル ID は `src/lib/ai/models.ts` に定数化されている（`openai/text-embedding-3-small` /
 > `anthropic/claude-haiku-4.5`）。Gateway 上の正確な ID が異なれば、この 1 ファイルの定数を変えるだけで切替可能。
+
+## 4.5 楽天ウェブサービスのキーを発行する（あなたの作業・任意）
+
+銘柄のパッケージ画像・楽天購入リンクは楽天市場 商品検索 API から取得する（FR-09。未設定でも
+アプリは画像なしレイアウトで動く）。
+
+1. https://webservice.rakuten.co.jp/ に楽天会員 ID でログイン → 「アプリID発行」
+   - アプリケーションタイプ: API/バックエンドサービス ／ APIアクセススコープ: 楽天市場API
+   - 許可された IP アドレス: バッチを実行するマシンのグローバル IP（`curl.exe ifconfig.me` で確認。
+     回線の IP が変わって 403 になったら管理画面で更新）
+2. 発行された **アプリケーションID** と **アクセスキー** を `.env.local` の
+   `RAKUTEN_APP_ID` / `RAKUTEN_ACCESS_KEY` に設定
+3. `npm run import:images` を実行（1 リクエスト/秒。seed 分 76 銘柄で約 2 分）
+   - 誤マッチ抑止（銘柄名の包含・セット商品等の NG ワード）を通過した画像のみ保存される
+   - 照合結果の監査ログが `tmp/rakuten-image-audit.csv` に出力される（目視確認用）
+   - 画像は楽天 CDN の URL を参照表示する。自前ダウンロード・加工・保存はしない
 
 ---
 

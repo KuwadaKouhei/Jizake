@@ -32,7 +32,14 @@ vi.mock("next/navigation", () => ({
 import HistoryPage from "./page";
 
 function sake(id: string, name: string): SakeSummary {
-  return { id, name, breweryName: "旭酒造", prefectureCode: "35", tags: [] };
+  return {
+    id,
+    name,
+    breweryName: "旭酒造",
+    prefectureCode: "35",
+    imageUrl: null,
+    tags: [],
+  };
 }
 
 const emptyView: ViewHistoryPage = {

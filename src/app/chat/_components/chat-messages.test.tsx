@@ -24,6 +24,7 @@ function summary(id: string, name: string): SakeSummary {
     name,
     breweryName: "旭酒造",
     prefectureCode: "35",
+    imageUrl: null,
     tags: [],
   };
 }
