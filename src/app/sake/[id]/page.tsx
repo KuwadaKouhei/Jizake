@@ -10,6 +10,7 @@ import { findPriceRangeLabel } from "@/lib/constants/price-ranges";
 import { getSakeDetail } from "@/lib/db/queries/sakes";
 
 import { ExternalLinks } from "./_components/external-links";
+import { FavoriteButton } from "./_components/favorite-button";
 import { FlavorChartView } from "./_components/flavor-chart";
 import { RecordViewTrigger } from "./_components/record-view-trigger";
 import { SakeDescription } from "./_components/sake-description";
@@ -167,6 +168,11 @@ export default async function SakeDetailPage({ params }: PageProps) {
                 価格帯: {priceLabel}
               </p>
             ) : null}
+            {/* お気に入りボタン（自己完結の動的アイランド。状態はマウント時に取得する。
+                詳細ページの静的配信〔revalidate=3600〕を壊さないため RSC では読まない）。 */}
+            <div className="mt-4">
+              <FavoriteButton sakeId={sake.id} />
+            </div>
           </header>
 
           <div className="mt-6 grid gap-6">

@@ -29,6 +29,20 @@
       "when": 1783228150655,
       "tag": "0003_add-sake-image-url",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783248410193,
+      "tag": "0004_add-favorites",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783248411193,
+      "tag": "0005_favorites-rls",
+      "breakpoints": true
     }
   ]
 }

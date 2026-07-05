@@ -234,6 +234,32 @@ export const viewHistories = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// favorites（お気に入り）— DATABASE.md §2.11（ユーザー×銘柄の多対多。T25 / FR-10）
+// ---------------------------------------------------------------------------
+export const favorites = pgTable(
+  "favorites",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    sakeId: uuid("sake_id")
+      .notNull()
+      .references(() => sakes.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // 同一ユーザーが同一銘柄を二重にお気に入り登録できない（複合 PK）
+    primaryKey({ columns: [t.userId, t.sakeId] }),
+    // index: お気に入り一覧（本人の登録を新しい順に）
+    index("favorites_user_id_created_at_idx").on(t.userId, t.createdAt.desc()),
+    // index: 銘柄削除時の CASCADE 走査・銘柄別集計
+    index("favorites_sake_id_idx").on(t.sakeId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // search_histories（検索履歴）— DATABASE.md §2.7（追記専用）
 // ---------------------------------------------------------------------------
 export const searchHistories = pgTable(
@@ -358,6 +384,8 @@ export type NewSakeTag = typeof sakeTags.$inferInsert;
 export type Profile = typeof profiles.$inferSelect;
 export type ViewHistory = typeof viewHistories.$inferSelect;
 export type NewViewHistory = typeof viewHistories.$inferInsert;
+export type Favorite = typeof favorites.$inferSelect;
+export type NewFavorite = typeof favorites.$inferInsert;
 export type SearchHistory = typeof searchHistories.$inferSelect;
 export type NewSearchHistory = typeof searchHistories.$inferInsert;
 export type ChatSession = typeof chatSessions.$inferSelect;

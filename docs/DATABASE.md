@@ -248,6 +248,22 @@ create trigger on_auth_user_created
   本体と異なるライフサイクルを持つため。
 - 前提: `create extension if not exists vector;`（カスタム SQL マイグレーション）。
 
+### 2.11 favorites（お気に入り）— T25 / FR-10
+
+ユーザー×銘柄の多対多（`sake_tags` と同型の中間テーブル）。ログインユーザーが登録/解除する。
+
+| カラム | 型 | NULL | デフォルト | 制約・説明 |
+|---|---|---|---|---|
+| user_id | uuid | NOT NULL | — | 複合 PK。FK → `profiles.id`（ON DELETE CASCADE） |
+| sake_id | uuid | NOT NULL | — | 複合 PK。FK → `sakes.id`（ON DELETE CASCADE） |
+| created_at | timestamptz | NOT NULL | `now()` | 登録日時（一覧の新しい順） |
+
+- PK は `(user_id, sake_id)`（同一銘柄の二重登録を防ぐ）。
+- index: `favorites_user_id_created_at_idx`（本人の一覧を新しい順）・`favorites_sake_id_idx`（CASCADE 走査）。
+- RLS（§4.2 と同方針）: `favorites_own_select`（本人の行のみ SELECT）。書き込みポリシーは作らず、
+  追加/削除は RLS を素通しするサーバ接続経由の Server Action のみ（user_id は認証セッションから取得）。
+- マイグレーション: 0004（テーブル）＋ 0005（RLS）。
+
 ---
 
 ## 3. インデックス設計

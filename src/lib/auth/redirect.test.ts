@@ -16,6 +16,11 @@ describe("isProtectedPath", () => {
     expect(isProtectedPath("/history/detail")).toBe(true);
   });
 
+  it("/favorites も保護対象（T25）", () => {
+    expect(isProtectedPath("/favorites")).toBe(true);
+    expect(isProtectedPath("/favorites/x")).toBe(true);
+  });
+
   it("接頭辞が一致するだけの別ルートは保護しない", () => {
     expect(isProtectedPath("/historyx")).toBe(false);
     expect(isProtectedPath("/history-archive")).toBe(false);
