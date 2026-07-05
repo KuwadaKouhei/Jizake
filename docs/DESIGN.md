@@ -478,8 +478,11 @@ embedText(text: string): Promise<number[]>
 
 ### 6.4 LLM 障害時のフォールバック
 
-- `/api/chat` で AI Gateway 呼び出しにタイムアウト（初期 30 秒）とエラーハンドリングを実装。
-  T15 実装: `streamText({ abortSignal: AbortSignal.timeout(30_000) })`＋route の `export const maxDuration`
+- `/api/chat` で AI Gateway 呼び出しにタイムアウト（55 秒。初期 30 秒から変更）とエラーハンドリングを実装。
+  T15 実装: `streamText({ abortSignal: AbortSignal.timeout(55_000) })`＋route の `export const maxDuration`。
+  変更理由（2026-07-05）: T23 の段階的絞り込みで 1 リクエスト内の LLM ステップ（検索→応答）が増え、
+  実測で 1 往復 6〜11 秒（本番ビルド）。開発サーバはさらに遅く、30 秒では正常な応答が
+  タイムアウト誤発火してエラー表示が頻発したため、maxDuration（60 秒）の範囲内で引き上げた
   （関数打ち切りが LLM タイムアウトより先に来ない余裕）。中断/障害は streamText の `onError` で捕捉する。
 - 失敗時はストリームにエラーパートを流し、UI は「現在チャットが混み合っています」＋
   **検索ページへの導線（それまでのヒアリング内容から組み立てた検索 URL があれば付与）**を表示する。
