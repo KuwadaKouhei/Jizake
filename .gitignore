@@ -43,3 +43,4 @@ next-env.d.ts
 
 # 画像照合の監査ログ等の一時出力（import:images）
 tmp/
+.claude/launch.json
