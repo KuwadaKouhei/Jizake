@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Jizake ファビコン: 日本酒の一升瓶（ブランド藍 #274a78 の角丸背景に生成りの瓶） -->
+  <rect width="32" height="32" rx="7" fill="#274a78"/>
+  <!-- 瓶（生成り） -->
+  <g fill="#f7f4ec">
+    <!-- 首 -->
+    <rect x="14" y="6" width="4" height="6"/>
+    <!-- 肩（首から胴へ広がる） -->
+    <path d="M14 10 H18 L21 15 H11 Z"/>
+    <!-- 胴 -->
+    <rect x="11" y="13.5" width="10" height="14.5" rx="2.6"/>
+  </g>
+  <!-- 王冠（金） -->
+  <rect x="13.2" y="3.4" width="5.6" height="3" rx="0.8" fill="#c9a24b"/>
+  <!-- ラベル（藍地に生成りの罫線 2 本＝銘柄名の見立て。小サイズでも潰れない） -->
+  <rect x="12.4" y="17.6" width="7.2" height="6.8" rx="1.1" fill="#274a78"/>
+  <rect x="14" y="19.4" width="4" height="1" rx="0.5" fill="#f7f4ec"/>
+  <rect x="14" y="21.4" width="4" height="1" rx="0.5" fill="#f7f4ec" opacity="0.7"/>
+</svg>
