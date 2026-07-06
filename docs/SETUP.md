@@ -198,9 +198,19 @@ npm run rag:poc
 - **Vercel Hobby（無料）で動作**する。ただし Hobby は**非商用**（個人・ポートフォリオ）が規約。商用は Pro。
 - Supabase 無料枠＋AI Gateway 従量（チャット利用次第）。
 
-### GitHub Actions（CI）の Secrets
-- `SUPABASE_URL` / `SUPABASE_ANON_KEY`（＋任意で `DATABASE_URL`）を登録すると
-  `.github/workflows/ping-supabase.yml` の定期 ping（無料枠 7 日停止対策）が有効化される。
+### Supabase 無操作停止対策（keep-alive・2 系統）
+無料枠の Supabase は約 7 日間アクティビティが無いと一時停止する。2 系統で対策済み:
+
+1. **Vercel Cron（主・デプロイと一体）**: `vercel.json` の `crons` が毎日 `/api/ping`
+   （[`src/app/api/ping/route.ts`](../src/app/api/ping/route.ts)）を叩き、DB へ `select 1` を投げる。
+   **本番デプロイ後、自動で有効化される（追加設定不要）**。任意で環境変数 `CRON_SECRET` を設定すると、
+   Vercel Cron からの呼び出しのみに制限できる（未設定でも無害な軽量 ping として動作）。
+   ※ Vercel Hobby の Cron は 1 日 1 回まで。日次スケジュールで 7 日の窓を十分下回る。
+2. **GitHub Actions（副・任意）**: `SUPABASE_URL` / `SUPABASE_ANON_KEY`（＋任意で `DATABASE_URL`）を
+   リポジトリの Actions Secrets に登録すると `.github/workflows/ping-supabase.yml` の週 2 回 ping が
+   有効化される（REST API 経由 ＝ プラットフォーム活動として確実）。Vercel を使わない場合の代替にもなる。
+
+### GitHub Actions（CI）の Secrets — E2E フルフロー
 - 上記＋`AI_GATEWAY_API_KEY` を登録すると、`e2e` ジョブのフルフロー E2E（検索・ログイン・チャット実 LLM）が
   自動的に skip 解除され実行される（未登録時は安定動線のみで安全にグリーン）。
   ※ フルフロー実行時は Playwright の trace（リクエスト/レスポンス・Cookie を含む）を artifact に載せる
