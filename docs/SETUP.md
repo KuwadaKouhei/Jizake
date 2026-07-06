@@ -172,13 +172,31 @@ npm run rag:poc
 
 ## 6. デプロイ（Vercel）※任意・DB 稼働後
 
-1. Vercel に GitHub リポジトリを接続（Framework: Next.js は自動検出）
-2. 環境変数を Vercel プロジェクトに設定:
+> 前提: コード側は本番対応済み（`next.config.ts` の楽天 CDN 画像許可、DB クライアントの
+> `prepare:false`／`max=1`、セキュリティヘッダ、`/api/chat` の `maxDuration`）。マイグレーションは
+> 本番 Supabase に**手元で適用済み**である前提（ビルド時にマイグレーションは走らない。スキーマ変更時は
+> デプロイ前に `npm run db:migrate` を実行する）。リージョンは `vercel.json` で Tokyo（`hnd1`）固定。
+
+1. **Vercel に GitHub リポジトリを接続**（Framework: Next.js は自動検出。ビルド設定変更不要）
+2. **環境変数を Vercel プロジェクトに設定**（Production / Preview 両方）:
    - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `DATABASE_URL` は **Transaction pooler（6543）** の接続文字列を使う（サーバレスの接続枯渇回避。
-     アプリは `prepare: false` 済みで両モード動作可）
+   - `DATABASE_URL` は **Transaction pooler（ポート 6543）** の接続文字列を使う（⚠️ ローカルの
+     Session pooler〔5432〕とは別物。サーバレスの接続枯渇回避。アプリは `prepare:false` 済みで両モード動作可）
    - `AI_GATEWAY_API_KEY`
-3. デプロイ
+   - ※ `RAKUTEN_APP_ID` / `RAKUTEN_ACCESS_KEY` は**不要**（画像取得はローカルの `import:images` バッチ専用。
+     本番の実行時には楽天 API を呼ばない）
+3. **デプロイ** → 本番 URL を控える
+4. **認証を本番 URL に合わせる**（⚠️ これを忘れると Google/メールのログインが失敗する。§3・§4 の設定を本番用に追加）:
+   - Supabase → Authentication → **URL Configuration** → **Site URL** を本番 URL に設定し、
+     **Redirect URLs** に `https://<本番ドメイン>/auth/callback` を追加（メール確認リンク・OAuth コールバックが本番に戻る）
+   - Google Cloud → OAuth クライアント → **承認済みの JavaScript 生成元／リダイレクト**に本番ドメインを追加
+     （Supabase 側のコールバック URI `https://<ref>.supabase.co/auth/v1/callback` は §3 で登録済み）
+5. **疎通確認**: `/`（人気） → `/search` → `/sake/[id]`（画像・レーダー） → `/chat`（実 LLM 提案） →
+   `/login`（Google・メール） → お気に入り追加 → `/favorites`
+
+### コスト・プラン
+- **Vercel Hobby（無料）で動作**する。ただし Hobby は**非商用**（個人・ポートフォリオ）が規約。商用は Pro。
+- Supabase 無料枠＋AI Gateway 従量（チャット利用次第）。
 
 ### GitHub Actions（CI）の Secrets
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY`（＋任意で `DATABASE_URL`）を登録すると
