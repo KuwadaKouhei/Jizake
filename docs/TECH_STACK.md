@@ -120,14 +120,19 @@ PLAN_PHILOSOPHY のコア原則を評価軸の重みに変換した。
 
 ## 5. AI・RAG
 
-### 採用: Vercel AI SDK 6.x + Vercel AI Gateway ／ LLM: Claude Haiku 4.5 ／ 埋め込み: OpenAI text-embedding-3-small
+### 採用: Vercel AI SDK 6.x ／ LLM: Claude Haiku 4.5（Claude API 直接接続）／ 埋め込み: OpenAI text-embedding-3-small（AI Gateway 経由）
+
+> **逸脱（2026-07-14・原則3）**: チャット LLM の呼び出し口を **Vercel AI Gateway 経由から Claude API 直接接続（`@ai-sdk/anthropic`）へ変更**した（ユーザー指示）。
+> - **理由**: LLM 呼び出しを Anthropic へ直接行いたいというユーザー要求。認証は `ANTHROPIC_API_KEY`（Anthropic Console 発行）へ移行する。
+> - **原則3 への影響は限定的**: 変更は AI SDK のプロバイダ関数を `gateway(id)` → `anthropic(id)` に差し替えるだけで、`streamText`/`useChat`/tool calling などの抽象は不変。モデル指定は引き続き `models.ts` の定数 1 箇所（`CHAT_MODEL_ID`）で、ドメイン層にベンダー型は漏れない。失われるのは「モデル ID 変更だけで 25+ プロバイダへ切替」できる Gateway の広さと、$5/月無料クレジット・単一キー運用のメリット。
+> - **埋め込みは Gateway 経由のまま**（Anthropic に埋め込みモデルがないため）。結果として `ANTHROPIC_API_KEY`（チャット）と `AI_GATEWAY_API_KEY`（埋め込み）の 2 キー運用になる。
 
 **選定理由（思想対応）**
 
 - **差し替え可能な知能（原則3）を構造で実現**:
   - AI SDK はプロバイダ抽象化レイヤを持ち、モデル指定の変更のみで LLM を交換できる。retriever（pgvector + タグ SQL のハイブリッド検索）と generator（LLM）はコード上も分離する。
-  - AI Gateway を経由することで、モデル ID の文字列変更だけで 25+ プロバイダのモデルへ切替可能。プロバイダ SDK への直接依存を排除し、思想の「ベンダー型をドメイン層へ漏らさない」を仕組みで担保する。
-- **低コスト**: AI Gateway は全プラン（Hobby 含む）で利用でき、$5/月の無料クレジット＋以降はプロバイダ定価（マークアップなし）。Claude Haiku 4.5 で月間 500 会話 $10〜15 程度（FEASIBILITY §3.2）。
+  - LLM・埋め込みとも AI SDK 越しに呼ぶため、プロバイダ実装（`@ai-sdk/anthropic` / `gateway`）を差し替えても `models.ts` のモデル ID 定数と呼び出しコードの外にベンダー型は漏れない（「ベンダー型をドメイン層へ漏らさない」を仕組みで担保）。
+- **低コスト**: Claude Haiku 4.5 は $1/100万入力・$5/100万出力トークンで、月間 500 会話 $10〜15 程度（FEASIBILITY §3.2）。埋め込みが経由する AI Gateway は全プラン（Hobby 含む）で利用でき、$5/月の無料クレジット＋以降はプロバイダ定価（マークアップなし）。
 - **シンプルさ**: `useChat` でストリーミング UI（非機能要件）、tool calling で「ヒアリング回答→DB 検索条件変換」と「銘柄 ID の structured output」（捏造防止、FR-08 受け入れ条件）が標準機能で書ける。
 - **バージョン判断**: 2026-07 時点で `ai@7.0.14`（2026-07-02 リリース）が最新だが、リリース数日のメジャーは採用しない。**6.x 系（6.0.219 まで安定化済み、2025-12 リリース）を採用**し、v7 はエコシステム追従後に移行判断する。v5→v6 が大型破壊的変更だった経緯からも、メジャー直後の追従は避ける（流行に流されない）。
 - **埋め込み**: text-embedding-3-small は $0.02/100 万トークンで日本語対応、1536 次元で pgvector と整合（FEASIBILITY §3.1 で裏取り済み）。全銘柄の初期埋め込みは $0.02 程度。
@@ -136,10 +141,10 @@ PLAN_PHILOSOPHY のコア原則を評価軸の重みに変換した。
 
 | 候補 | 評価 | 不採用理由 |
 |---|---|---|
-| **Vercel AI SDK + AI Gateway（採用）** | ストリーミング・tool calling・プロバイダ抽象を標準装備。RAG 公式テンプレートあり | — |
+| **Vercel AI SDK（採用）** | ストリーミング・tool calling・プロバイダ抽象を標準装備。RAG 公式テンプレートあり。チャットは `@ai-sdk/anthropic`（Claude API 直接接続）、埋め込みは `gateway` プロバイダを使う | — |
 | LangChain / LlamaIndex | RAG 部品が豊富 | 抽象化が厚く数千件規模の単純な RAG にはオーバーキル。破壊的変更が多く学習コストも高い（原則1 に反する） |
-| Anthropic SDK 直接利用 | 依存最少 | ストリーミング UI・useChat を自作する必要があり、プロバイダロックインになる（原則3 に反する） |
-| LLM: GPT-4o mini / Gemini Flash 系 | 同価格帯 | 品質・価格は拮抗しており決定打はないが、FEASIBILITY で試算済みの Haiku 4.5 を初期値とする。Gateway 経由のためモデル ID 変更のみで随時比較・切替可能（この「いつでも変えられる」構造自体が選定理由） |
+| Anthropic SDK（`@anthropic-ai/sdk`）直接利用 | 依存最少 | ストリーミング UI・useChat を自作する必要がある。**なお採用した `@ai-sdk/anthropic` は AI SDK のプロバイダ実装であり、この生 SDK ではない**（`streamText`/`useChat` の抽象は維持される） |
+| LLM: GPT-4o mini / Gemini Flash 系 | 同価格帯 | 品質・価格は拮抗しており決定打はないが、FEASIBILITY で試算済みの Haiku 4.5 を初期値とする。AI SDK のプロバイダ抽象越しに呼ぶため、他社モデルへの切替も `models.ts` の定数変更（＋プロバイダ関数差し替え）で対応可能 |
 | 埋め込み: Cohere embed-multilingual / Google embedding | 日本語性能は有力 | 価格・次元・実績で text-embedding-3-small と大差なく、FEASIBILITY で試算済みの初期値を維持。埋め込みモデル名と次元は設定値として持ち、差し替え時は再埋め込みバッチで対応（原則3） |
 
 出典: [AI SDK 6 発表](https://vercel.com/blog/ai-sdk-6)、[vercel/ai releases](https://github.com/vercel/ai/releases)、[AI Gateway 料金](https://vercel.com/docs/ai-gateway/pricing)、[AI Gateway 概要](https://vercel.com/docs/ai-gateway)、[Claude API 料金](https://platform.claude.com/docs/en/about-claude/pricing)、[text-embedding-3-small](https://developers.openai.com/api/docs/models/text-embedding-3-small)、[AI SDK RAG テンプレート](https://vercel.com/templates/next.js/ai-sdk-rag)

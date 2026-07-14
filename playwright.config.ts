@@ -11,9 +11,10 @@ import { defineConfig, devices } from "@playwright/test";
  *   スキップできる（ローカルで反復するときのため）。
  *
  * 実データ/実キーの前提（自律実行モードの制約）:
- * - `DATABASE_URL` / `AI_GATEWAY_API_KEY` が無い環境では、DB/LLM に依存する画面
- *   （/・/search・/sake/[id]・/prefectures/[code]）が 500 になる。フルフロー spec は
- *   各 spec 冒頭で `test.skip(!process.env.X)` により条件付きスキップする。
+ * - `DATABASE_URL` が無い環境では、DB に依存する画面（/・/search・/sake/[id]・
+ *   /prefectures/[code]）が 500 になる。チャットのフルフローは `ANTHROPIC_API_KEY`
+ *   （Claude API 直接接続）が要る。フルフロー spec は各 spec 冒頭で
+ *   `test.skip(!process.env.X)` により条件付きスキップする。
  * - DB/キー無しでも到達できる安定動線（/prefectures・/login・/signup・/chat・
  *   未ログインの /history ガード）は常に検証する。詳細は e2e/README.md を参照。
  */

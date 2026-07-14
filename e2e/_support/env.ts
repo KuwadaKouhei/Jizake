@@ -2,9 +2,9 @@
  * E2E の実行環境フラグ（実データ/実キーの有無で skip 条件を分ける）。
  *
  * 自律実行モードの制約（TASKS T16・REVIEW 各タスク残作業）で、Supabase 実 DB と
- * AI Gateway キーが無い環境がある。その場合 DB/LLM に依存する画面は 500 になるため、
- * フルフロー spec を `test.skip(!hasDatabase)` / `test.skip(!hasAiGateway)` で条件付き
- * スキップし、DB/キー無しでも到達できる安定動線だけを常に検証する。
+ * チャット LLM キー（Claude API）が無い環境がある。その場合 DB/LLM に依存する画面は
+ * 500 になるため、フルフロー spec を `test.skip(!hasDatabase)` / `test.skip(!hasChatLlm)`
+ * で条件付きスキップし、DB/キー無しでも到達できる安定動線だけを常に検証する。
  *
  * ※ E2E は外部サーバを起動して叩く黒箱テストであり、これらの環境変数はサーバ側で参照される。
  *   ここでは「テストランナー（Playwright）を起動したシェルの環境変数」を見て skip を決める。
@@ -21,5 +21,5 @@ export const hasSupabaseAuth = Boolean(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 );
 
-/** AI Gateway キー（AI_GATEWAY_API_KEY）が設定されているか。チャット 1 往復のフルフローに必要。 */
-export const hasAiGateway = Boolean(process.env.AI_GATEWAY_API_KEY);
+/** チャット LLM キー（ANTHROPIC_API_KEY・Claude API 直接接続）が設定されているか。チャット 1 往復のフルフローに必要。 */
+export const hasChatLlm = Boolean(process.env.ANTHROPIC_API_KEY);

@@ -65,7 +65,7 @@ Jizake は日本酒のデータベースを構築し、以下を提供する Web
 | ORM / マイグレーション | Drizzle ORM + drizzle-kit |
 | 認証 | Supabase Auth（@supabase/ssr。メール + Google OAuth） |
 | AI フレームワーク | Vercel AI SDK 6.x |
-| LLM ルーティング | Vercel AI Gateway |
+| LLM 接続 | Claude API 直接接続（`@ai-sdk/anthropic`）／ 埋め込みは Vercel AI Gateway 経由 |
 | LLM / 埋め込み | Claude Haiku 4.5 / OpenAI text-embedding-3-small（1536 次元） |
 | 検索 | Postgres ILIKE + タグ JOIN |
 | ホスティング | Vercel（Tokyo リージョン固定） |
@@ -84,7 +84,8 @@ Jizake は日本酒のデータベースを構築し、以下を提供する Web
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase プロジェクト URL（認証・DB） | 必須 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon public key（RLS 前提の公開可能キー） | 必須 |
 | `DATABASE_URL` | Postgres 接続文字列（ローカルは Session pooler 5432、本番は Transaction pooler 6543） | 必須 |
-| `AI_GATEWAY_API_KEY` | Vercel AI Gateway のキー（埋め込み生成・RAG チャット。サーバ専用） | 埋め込み・チャットに必須 |
+| `ANTHROPIC_API_KEY` | Claude API のキー（RAG チャットの LLM。サーバ専用） | チャットに必須 |
+| `AI_GATEWAY_API_KEY` | Vercel AI Gateway のキー（埋め込み生成。サーバ専用） | 埋め込みに必須 |
 | `RAKUTEN_APP_ID` | 楽天ウェブサービスのアプリケーション ID（画像取得バッチ専用） | 任意（本番不要） |
 | `RAKUTEN_ACCESS_KEY` | 楽天ウェブサービスのアクセスキー（画像取得バッチ専用） | 任意（本番不要） |
 
@@ -138,7 +139,7 @@ Jizake/
 │  └─ lib/               # 横断ドメイン（責務名ディレクトリ）
 │     ├─ auth/           # Supabase Auth アダプタ
 │     ├─ db/             # Drizzle スキーマ・クライアント・共有クエリ
-│     ├─ ai/             # AI SDK / AI Gateway アダプタ（モデル ID・埋め込み・プロンプト）
+│     ├─ ai/             # AI SDK アダプタ（モデル ID・埋め込み・プロンプト。LLM=Claude API 直接／埋め込み=AI Gateway）
 │     ├─ rag/            # RAG 検索部（retriever）＋ 捏造防止の ID 検証
 │     ├─ recommend/      # 推薦エンジン（IF 固定・実装差し替え可能）
 │     ├─ search-query/   # URL⇔検索条件の純関数
@@ -155,7 +156,7 @@ Jizake/
 
 ## 開発環境の構築
 
-前提: Node.js（`@types/node` は 20 系）、Supabase プロジェクト、Vercel AI Gateway キー。詳細な取得手順は [`docs/SETUP.md`](docs/SETUP.md) が正です。
+前提: Node.js（`@types/node` は 20 系）、Supabase プロジェクト、Claude API キー（チャット）、Vercel AI Gateway キー（埋め込み）。詳細な取得手順は [`docs/SETUP.md`](docs/SETUP.md) が正です。
 
 ```bash
 # 1) 取得と依存インストール
@@ -164,7 +165,7 @@ cd Jizake
 npm install
 
 # 2) 環境変数を用意（.env.example をテンプレートに .env.local を作成し実値を記入）
-#    NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / DATABASE_URL / AI_GATEWAY_API_KEY
+#    NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / DATABASE_URL / ANTHROPIC_API_KEY / AI_GATEWAY_API_KEY
 
 # 3) スキーマ・データを投入（依存順・すべて冪等なので再実行可）
 npm run db:migrate        # スキーマ・RLS・トリガ・pgvector・HNSW
@@ -187,7 +188,8 @@ npm run dev
 |---|---|
 | `db:migrate` が `DATABASE_URL 未設定` で停止 | `.env.local` に `DATABASE_URL`（ローカルは Session pooler 5432）を設定 |
 | `db:migrate` が vector 拡張で失敗 | Supabase Dashboard → Database → Extensions で `vector` を有効化して再実行 |
-| `embed` / チャットが認証エラー | `AI_GATEWAY_API_KEY` を確認（AI Gateway はキー発行にカード登録が必要） |
+| チャットが認証エラー | `ANTHROPIC_API_KEY`（Claude API）を確認 |
+| `embed` が認証エラー | `AI_GATEWAY_API_KEY`（AI Gateway はキー発行にカード登録が必要）を確認 |
 | Google ログインが失敗する | Supabase の Redirect URLs にコールバック（`http://localhost:3000/auth/callback` 等）を登録 |
 | サインアップ後ログインできない | Confirm email が ON。確認メールを踏むか一時 OFF にする |
 | 数日アクセスが無く DB が停止 | Supabase 無料枠の一時停止。Dashboard で再開、または CI の定期 ping を有効化 |

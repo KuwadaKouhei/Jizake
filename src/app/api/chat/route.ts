@@ -1,10 +1,10 @@
+import { anthropic } from "@ai-sdk/anthropic";
 import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
   stepCountIs,
   streamText,
-  gateway,
 } from "ai";
 import { after } from "next/server";
 import { z } from "zod";
@@ -31,7 +31,7 @@ import {
  * RAG チャットの唯一の Route Handler（DESIGN §5.1・§4.3・TASKS T14 ①）。
  *
  * フロー: Zod 入力検証 → createUIMessageStream（writer 付き）→ streamText
- *   （AI Gateway 経由 Claude Haiku 4.5・CHAT_SYSTEM_PROMPT・searchSake/proposeSake ツール）。
+ *   （Claude API 直接接続の Claude Haiku 4.5・CHAT_SYSTEM_PROMPT・searchSake/proposeSake ツール）。
  * proposeSake ツールが返した銘柄 ID を validateProposedSakeIds で **DB 存在検証**してから
  * 「検証済みカード」をデータパート（data-proposedSakes）で送る（実在しない ID は黙って除外）。
  * これで LLM の自由文をカードにせず、ハルシネーション表示を構造的に防ぐ（DESIGN §6.2）。
@@ -47,9 +47,10 @@ import {
  *   加えヒアリング内容から組み立てた検索誘導（data-fallback）を送る。
  * - セッション保存（④）: ログイン時の確定提案のみ chat_sessions/chat_messages へ保存（tools.ts 側）。
  *
- * 注意（DIRECTORY_STRUCTURE §5.2）: AI SDK（`ai`）の import はここと src/lib/ai のみに許可。
- * gateway プロバイダは AI_GATEWAY_API_KEY を実行時に参照するため、import・build では
- * キーを要求しない（未設定でも build は壊れない。実際の LLM 呼び出し時にエラーになる）。
+ * 注意（DIRECTORY_STRUCTURE §5.2）: AI SDK（`ai`・`@ai-sdk/anthropic`）の import はここと
+ * src/lib/ai のみに許可。anthropic プロバイダは ANTHROPIC_API_KEY を実行時に参照するため、
+ * import・build ではキーを要求しない（未設定でも build は壊れない。実際の LLM 呼び出し時に
+ * エラーになる）。埋め込み（src/lib/ai）は引き続き AI Gateway 経由（AI_GATEWAY_API_KEY）。
  */
 
 // AI 呼び出しはリクエスト時に行うため動的レンダリング（キャッシュしない）。
@@ -162,7 +163,7 @@ export async function POST(request: Request): Promise<Response> {
       const collectedProposals: SakeSummary[] = [];
 
       const result = streamText({
-        model: gateway(CHAT_MODEL_ID),
+        model: anthropic(CHAT_MODEL_ID),
         system: CHAT_SYSTEM_PROMPT,
         messages: await convertToModelMessages(messages),
         // 出力トークンを有界化して出力側コスト DoS を防ぐ（S-2）。

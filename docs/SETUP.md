@@ -58,12 +58,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon public key>
 # ローカル・マイグレーション用は Session pooler（5432）
 DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
 
-# AI Gateway（埋め込み・LLM）※ §4 で発行
+# チャット LLM（Claude API 直接接続）※ §4 で発行
+ANTHROPIC_API_KEY=<anthropic api key>
+# 埋め込み（AI Gateway）※ §4 で発行
 AI_GATEWAY_API_KEY=<vercel ai gateway key>
 ```
 
 - `anon key` は RLS 前提の**公開可能キー**（クライアントに埋め込まれる。シークレットではない）。
-- `DATABASE_URL`・`AI_GATEWAY_API_KEY` は**サーバ専用シークレット**。
+- `DATABASE_URL`・`ANTHROPIC_API_KEY`・`AI_GATEWAY_API_KEY` は**サーバ専用シークレット**。
 
 ---
 
@@ -117,10 +119,17 @@ Dashboard で作成）すると、サインアップ→即ログインで `/hist
 
 ---
 
-## 4. AI Gateway のキーを発行する（あなたの作業）
+## 4. AI のキーを発行する（あなたの作業）
 
-RAG の埋め込み（text-embedding-3-small）と LLM（Claude Haiku 4.5）は Vercel AI Gateway 経由で呼ぶ。
+チャット LLM（Claude Haiku 4.5）は **Claude API 直接接続**、RAG の埋め込み（text-embedding-3-small）は
+**Vercel AI Gateway 経由**で呼ぶ（LLM の直接接続へ変更した逸脱と理由は TECH_STACK §5）。用途が分かれるため
+キーは 2 つ発行する。
 
+**チャット LLM（Claude API）**
+1. https://console.anthropic.com/settings/keys → API キーを発行
+2. `.env.local` の `ANTHROPIC_API_KEY` に設定（`npm run dev` で `/chat` から疎通確認）
+
+**埋め込み（AI Gateway）**
 1. https://vercel.com/dashboard → AI Gateway → API キーを発行
 2. `.env.local` の `AI_GATEWAY_API_KEY` に設定
 3. `npm run embed` を（再）実行して埋め込みを生成
@@ -182,7 +191,7 @@ npm run rag:poc
    - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `DATABASE_URL` は **Transaction pooler（ポート 6543）** の接続文字列を使う（⚠️ ローカルの
      Session pooler〔5432〕とは別物。サーバレスの接続枯渇回避。アプリは `prepare:false` 済みで両モード動作可）
-   - `AI_GATEWAY_API_KEY`
+   - `ANTHROPIC_API_KEY`（チャット LLM）／ `AI_GATEWAY_API_KEY`（埋め込み）
    - ※ `RAKUTEN_APP_ID` / `RAKUTEN_ACCESS_KEY` は**不要**（画像取得はローカルの `import:images` バッチ専用。
      本番の実行時には楽天 API を呼ばない）
 3. **デプロイ** → 本番 URL を控える
@@ -196,7 +205,7 @@ npm run rag:poc
 
 ### コスト・プラン
 - **Vercel Hobby（無料）で動作**する。ただし Hobby は**非商用**（個人・ポートフォリオ）が規約。商用は Pro。
-- Supabase 無料枠＋AI Gateway 従量（チャット利用次第）。
+- Supabase 無料枠＋Claude API 従量（チャット利用次第）＋AI Gateway 従量（埋め込み。初期生成後はほぼ発生しない）。
 
 ### Supabase 無操作停止対策（keep-alive・2 系統）
 無料枠の Supabase は約 7 日間アクティビティが無いと一時停止する。2 系統で対策済み:
@@ -211,8 +220,8 @@ npm run rag:poc
    有効化される（REST API 経由 ＝ プラットフォーム活動として確実）。Vercel を使わない場合の代替にもなる。
 
 ### GitHub Actions（CI）の Secrets — E2E フルフロー
-- 上記＋`AI_GATEWAY_API_KEY` を登録すると、`e2e` ジョブのフルフロー E2E（検索・ログイン・チャット実 LLM）が
-  自動的に skip 解除され実行される（未登録時は安定動線のみで安全にグリーン）。
+- 上記＋`ANTHROPIC_API_KEY`（チャット実 LLM）／ `AI_GATEWAY_API_KEY`（埋め込み）を登録すると、`e2e` ジョブの
+  フルフロー E2E（検索・ログイン・チャット実 LLM）が自動的に skip 解除され実行される（未登録時は安定動線のみで安全にグリーン）。
   ※ フルフロー実行時は Playwright の trace（リクエスト/レスポンス・Cookie を含む）を artifact に載せる
     範囲とアクセス権限を再評価すること（`docs/REVIEW.md` T16 SEC S-1）。
 
@@ -237,7 +246,8 @@ npm run rag:poc
 |---|---|
 | `db:migrate` が `DATABASE_URL 未設定` で停止 | `.env.local` に `DATABASE_URL`（Session pooler 5432）を設定 |
 | `db:migrate` が vector 拡張で失敗 | Dashboard → Database → Extensions で `vector` を有効化して再実行（§3） |
-| `embed`/チャットが認証エラー | `.env.local` の `AI_GATEWAY_API_KEY` を確認（§4） |
+| チャットが認証エラー | `.env.local` の `ANTHROPIC_API_KEY`（Claude API）を確認（§4） |
+| `embed` が認証エラー | `.env.local` の `AI_GATEWAY_API_KEY`（埋め込み）を確認（§4） |
 | サインアップ後ログインできない | Confirm email が ON。§3 の手順で OFF にするか確認メールのリンクを踏む |
 | ホーム `/` が推薦を出さない | `import:sakenowa`→`seed`→`embed` まで完了しているか確認。履歴が無い新規ユーザーは人気ランキング表示が正常 |
 | 数日アクセスが無く DB 停止 | 無料枠の一時停止。ダッシュボードで再開、または CI の ping Secrets を登録（§6） |

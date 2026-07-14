@@ -66,6 +66,8 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      # チャット LLM は Claude API 直接接続（ANTHROPIC_API_KEY）。埋め込みは AI Gateway（AI_GATEWAY_API_KEY）。
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
     steps:
       - uses: actions/checkout@v4
