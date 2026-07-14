@@ -13,8 +13,9 @@
 
 ## 実データ/実キー有無による分割（重要）
 
-自律実行モードの制約で **Supabase 実 DB・AI Gateway キーが未設定の環境**がある。DB/LLM に
-依存する画面は接続情報が無いと 500 になるため、E2E を 2 層に分けている。
+自律実行モードの制約で **Supabase 実 DB・チャット LLM キー（Claude API）が未設定の環境**がある。
+DB/LLM に依存する画面は接続情報が無いと 500 になる（チャットは送信時に LLM を叩く）ため、
+E2E を 2 層に分けている。
 
 ### 安定動線（DB/キー無しでも常に実行・CI の既定）
 
@@ -41,7 +42,7 @@
 |---|---|---|
 | 検索→一覧→詳細 | `DATABASE_URL` | `/search` 実行→結果カード→詳細遷移、`/prefectures/[code]` 一覧→詳細 |
 | ログイン | `NEXT_PUBLIC_SUPABASE_URL` ＋ `NEXT_PUBLIC_SUPABASE_ANON_KEY` | サインアップ→ログイン→保護ページ `/history` 到達 |
-| チャット | `AI_GATEWAY_API_KEY` | 実 LLM への 1 メッセージ送信→ストリーミング応答 |
+| チャット | `ANTHROPIC_API_KEY` | 実 LLM（Claude API 直接接続）への 1 メッセージ送信→ストリーミング応答 |
 
 ## ローカル実行
 
@@ -62,7 +63,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:3100 npx playwright test
 
 1. Supabase プロジェクト作成後、`.env.local` に接続情報を設定（`.env.example` 参照）
    - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `DATABASE_URL`
-   - `AI_GATEWAY_API_KEY`
+   - `ANTHROPIC_API_KEY`（チャット LLM）／ `AI_GATEWAY_API_KEY`（埋め込み）
 2. マイグレーション適用・データ投入・埋め込み生成（各タスクの残作業）:
    ```bash
    npm run db:migrate

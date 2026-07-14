@@ -32,9 +32,9 @@ graph TB
         AUTH["Supabase Auth<br/>（@supabase/ssr）"]
     end
 
-    subgraph AI["Vercel AI Gateway 経由"]
-        LLM["Claude Haiku 4.5<br/>（generator）"]
-        EMB["OpenAI text-embedding-3-small<br/>（埋め込み）"]
+    subgraph AI["AI（AI SDK 経由）"]
+        LLM["Claude Haiku 4.5<br/>（generator・Claude API 直接接続）"]
+        EMB["OpenAI text-embedding-3-small<br/>（埋め込み・AI Gateway 経由）"]
     end
 
     subgraph Batch["ローカル実行バッチ（tsx スクリプト）"]
@@ -62,7 +62,7 @@ graph TB
 | 思想 | 本設計での反映 |
 |---|---|
 | データ中心設計 | 検索・推薦・RAG はすべて「Postgres 上の日本酒データを異なる方法で引く」読み取り系機能。書き込みは履歴記録とバッチ投入のみ |
-| 差し替え可能な知能 | 推薦は `Recommender` インターフェース（入力=履歴、出力=銘柄リスト）で固定。RAG は retriever / generator を分離し、LLM・埋め込みは AI Gateway のモデルID変更で交換可能 |
+| 差し替え可能な知能 | 推薦は `Recommender` インターフェース（入力=履歴、出力=銘柄リスト）で固定。RAG は retriever / generator を分離し、LLM・埋め込みは `models.ts` のモデル ID 定数で交換可能（LLM は Claude API 直接接続、埋め込みは AI Gateway 経由。TECH_STACK §5 の逸脱記録参照） |
 | シンプルさ最優先 | Route Handler は `/api/chat` の 1 本のみ。他はすべて Server Components / Server Actions で完結。独自レイヤーを発明しない |
 | 未ログインでも価値がある | 閲覧・検索・チャットは匿名可。認証は履歴記録・パーソナライズ推薦のみのゲート |
 
@@ -173,7 +173,7 @@ seed-data/                   # 説明文・種別・読み仮名・価格帯の 
 |---|---|
 | 責務 | Q&A ヒアリング→DB 内の銘柄を複数提案（FR-08）。**retriever と generator を分離** |
 | retriever（`src/lib/rag`） | ハイブリッド検索: タグ・都道府県・価格帯の SQL 絞り込み ＋ pgvector コサイン類似度（クエリ埋め込みは text-embedding-3-small）。入力=検索条件＋自然文、出力=銘柄ID付き候補リスト。**LLM に依存しない**ため単体で統合テスト可能（TEST_PHILOSOPHY） |
-| generator | AI SDK `streamText`（AI Gateway 経由の Claude Haiku 4.5）。システムプロンプトで「ヒアリング（2〜3問）→検索→提案」の進行と、ツールの検索結果にある銘柄のみ提案することを指示 |
+| generator | AI SDK `streamText`（Claude API 直接接続の Claude Haiku 4.5・`@ai-sdk/anthropic`。TECH_STACK §5 の逸脱記録参照）。システムプロンプトで「ヒアリング（2〜3問）→検索→提案」の進行と、ツールの検索結果にある銘柄のみ提案することを指示 |
 | ツール定義 | ① `searchSake`: LLM がヒアリング回答を検索条件に変換して retriever を呼ぶ ② `proposeSake`: 提案確定時に **structured output（Zod スキーマ）で銘柄IDの配列＋提案理由**を返させる |
 | 捏造防止（二段構え） | (1) プロンプトに渡す候補は retriever の結果（DB 実在ID付き）のみ (2) `proposeSake` が返した ID を**サーバ側で DB 存在検証**し、実在する銘柄だけをカードデータとしてストリームに載せる。実在しない ID は黙って除外。**LLM の自由文をカードにしない**ため、ハルシネーション表示は構造的に不可能 |
 | UI | `useChat` によるストリーミング表示。提案カードはストリームのデータパートから描画し、`/sake/[id]` へのリンクを持つ（FR-08 受け入れ条件） |
@@ -333,7 +333,7 @@ sequenceDiagram
 sequenceDiagram
     participant B as ブラウザ(useChat)
     participant RH as /api/chat (Route Handler)
-    participant G as generator(Claude via AI Gateway)
+    participant G as generator(Claude API 直接接続)
     participant R as retriever(src/lib/rag)
     participant DB as Postgres + pgvector
 
@@ -453,8 +453,8 @@ embedText(text: string): Promise<number[]>
   2. **二段目（defense-in-depth）**: ViewHistory / SearchHistory / ChatSession / ChatMessage に RLS を有効化し
      「本人のみ read/write」ポリシーを設定。Drizzle のプーラ接続は RLS を素通しするため一段目が主防御だが、
      supabase-js 経由のアクセスや将来の実装ミスに対する保険として機能する。
-- シークレット（DB 接続文字列・AI Gateway キー）は環境変数のみ。クライアントに渡るのは
-  `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` のみ（anon キーは RLS 前提の公開可能キー）。
+- シークレット（DB 接続文字列・`ANTHROPIC_API_KEY`〔チャット LLM〕・`AI_GATEWAY_API_KEY`〔埋め込み〕）は
+  環境変数のみ。クライアントに渡るのは `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` のみ（anon キーは RLS 前提の公開可能キー）。
 - LLM API キーはサーバサイド（`/api/chat`・バッチ）でのみ使用。クライアントから LLM を直接呼ばない。
 - パスワードハッシュ・セッション管理は Supabase Auth に委任（自前実装しない）。
 - プロンプトインジェクション対策: LLM の出力を**信頼境界の外**として扱う。提案は ID 検証済みカードのみ描画し、
@@ -462,7 +462,8 @@ embedText(text: string): Promise<number[]>
 
 ### 6.3 コスト
 
-- 固定費 0 円構成（Vercel Hobby ＋ Supabase Free ＋ AI Gateway 無料クレジット $5/月）。変動費は LLM のみ。
+- 固定費 0 円構成（Vercel Hobby ＋ Supabase Free ＋ 埋め込みは AI Gateway 無料クレジット $5/月の範囲）。
+  変動費は主にチャット LLM（Claude API 直接課金・Claude Haiku 4.5）。
 - チャットのコスト上限ガード（すべて定数化）:
   - 1 会話の往復数上限（初期 10）・1 メッセージ長上限・`maxOutputTokens` 設定。
   - システムプロンプトと候補リストを簡潔に保つ（候補は上位 8 件程度に絞って渡す）。
@@ -478,7 +479,7 @@ embedText(text: string): Promise<number[]>
 
 ### 6.4 LLM 障害時のフォールバック
 
-- `/api/chat` で AI Gateway 呼び出しにタイムアウト（55 秒。初期 30 秒から変更）とエラーハンドリングを実装。
+- `/api/chat` で Claude API 呼び出しにタイムアウト（55 秒。初期 30 秒から変更）とエラーハンドリングを実装。
   T15 実装: `streamText({ abortSignal: AbortSignal.timeout(55_000) })`＋route の `export const maxDuration`。
   変更理由（2026-07-05）: T23 の段階的絞り込みで 1 リクエスト内の LLM ステップ（検索→応答）が増え、
   実測で 1 往復 6〜11 秒（本番ビルド）。開発サーバはさらに遅く、30 秒では正常な応答が
@@ -492,7 +493,9 @@ embedText(text: string): Promise<number[]>
   （`api/chat/_lib/fallback-search.ts`。UI は data-fallback パートを `FallbackNotice` で描画）。
 - 想定内エラー（タイムアウト・レート超過）はフォールバック文言、想定外はエラーバウンダリへ
   （CODING_PHILOSOPHY 原則 5）。
-- AI Gateway 側でのプロバイダ障害はモデル ID 切替（例: Haiku → 他プロバイダ同格モデル）で即時回避可能。
+- Anthropic 側障害時は `models.ts` の `CHAT_MODEL_ID` で同社別モデルへ切替可能。他社プロバイダへ逃がす場合は
+  プロバイダ関数の差し替え（`anthropic(id)` → 別プロバイダ／`gateway(id)`）が必要（Gateway 経由時のような
+  モデル ID 変更のみでの即時横断切替はできなくなった。TECH_STACK §5 の逸脱記録参照）。
 
 ---
 
