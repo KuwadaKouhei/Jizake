@@ -459,6 +459,15 @@ embedText(text: string): Promise<number[]>
 - パスワードハッシュ・セッション管理は Supabase Auth に委任（自前実装しない）。
 - プロンプトインジェクション対策: LLM の出力を**信頼境界の外**として扱う。提案は ID 検証済みカードのみ描画し、
   LLM 応答テキストはプレーンテキストとして表示（HTML/リンクをレンダリングしない）。
+- **過去 assistant の echo パートは LLM へ渡す前に落とす**（ステートレス設計で全履歴がクライアント
+  から届くため、過去 assistant のパートはクライアントが細工できる echo）。`api/chat/_lib/strip-echo-parts.ts`
+  の `stripUntrustedAssistantParts` が `data-*`（提案カード）と `tool-*`（ツール呼び出し・検索結果）を除去する。
+  text は残すので会話文脈は保たれ、LLM は必要なら再検索する。
+  - `data-*`: 細工された提案カードを LLM コンテキストへ入れない。
+  - `tool-*`: 偽装した「検索結果」で LLM の自由文を誘導させない。**併せて 2 往復目クラッシュも防ぐ** —
+    Route Handler の Zod は part の未知キー（`toolCallId`/`input` 等）を strip するため、届く `tool-*` は
+    抜け殻になり、そのまま `convertToModelMessages` に渡すと `AI_InvalidPromptError` で落ちる
+    （実 LLM キー投入時に発覚。2 往復目が必ず失敗していた）。
 
 ### 6.3 コスト
 
@@ -493,6 +502,11 @@ embedText(text: string): Promise<number[]>
   （`api/chat/_lib/fallback-search.ts`。UI は data-fallback パートを `FallbackNotice` で描画）。
 - 想定内エラー（タイムアウト・レート超過）はフォールバック文言、想定外はエラーバウンダリへ
   （CODING_PHILOSOPHY 原則 5）。
+- **`streamText` の `onError` は必ずサーバログに残す**。ユーザー向け文言は UI の固定文言が単一情報源で
+  内部詳細はクライアントへ返さない（§6.2・S-5）が、**サーバ側では握りつぶさない**。
+  `createUIMessageStream` の `onError` は `writer.merge()` 済みストリーム内のエラーでは発火しないため、
+  ログは `streamText` 側の `onError` で行う必要がある。ここで引数を受けずログも出していなかった結果、
+  2 往復目クラッシュがサーバログ無音のまま fallback だけ返る状態になり、原因究明が困難だった。
 - Anthropic 側障害時は `models.ts` の `CHAT_MODEL_ID` で同社別モデルへ切替可能。他社プロバイダへ逃がす場合は
   プロバイダ関数の差し替え（`anthropic(id)` → 別プロバイダ／`gateway(id)`）が必要（Gateway 経由時のような
   モデル ID 変更のみでの即時横断切替はできなくなった。TECH_STACK §5 の逸脱記録参照）。
