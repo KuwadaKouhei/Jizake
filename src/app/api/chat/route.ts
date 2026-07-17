@@ -20,7 +20,7 @@ import {
 import { buildFallbackSearchHref } from "./_lib/fallback-search";
 import { saveConfirmedProposal } from "./_lib/persist-session";
 import { isChatRateLimited, RATE_LIMIT_MESSAGE } from "./_lib/rate-limit";
-import { stripAssistantDataParts } from "./_lib/strip-data-parts";
+import { stripUntrustedAssistantParts } from "./_lib/strip-echo-parts";
 import {
   type ChatUIMessage,
   createChatTools,
@@ -97,8 +97,10 @@ const TIMEOUT_MS = 55_000;
  *   常にサーバが CHAT_SYSTEM_PROMPT で組み立てる（プロンプト乗っ取り防止）。
  * - part は `type` と任意の `text` だけを検証する。**未知キー（data 等）は Zod が strip する**
  *   ため、クライアントが偽装した data-* パートはこの検証を通過できず LLM/描画に到達しない
- *   （偽装カードの流入防止。S-4 と併せた多層防御）。過去 assistant の正規 data-* パートは
- *   後段の stripAssistantDataParts で明示的に落とす（strip の暗黙挙動に依存しない）。
+ *   （偽装カードの流入防止。S-4 と併せた多層防御）。過去 assistant の正規 data-* / tool-*
+ *   パートは後段の stripUntrustedAssistantParts で明示的に落とす（strip の暗黙挙動に依存しない）。
+ *   ※ strip は tool-* パートも抜け殻（`{ type: "tool-searchSake" }`）にするため、落とさずに
+ *     convertToModelMessages へ渡すと AI_InvalidPromptError になる（strip-echo-parts.ts 参照）。
  */
 const chatRequestSchema = z.object({
   messages: z
@@ -139,8 +141,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 検証済みボディを UIMessage として扱う（Zod は最小限の検証で、詳細型は AI SDK に委ねる）。
-  // 過去 assistant の data-* パート（提案カード等）は信頼境界外の echo なので LLM へ渡す前に落とす（S-4）。
-  const messages = stripAssistantDataParts(
+  // 過去 assistant の data-* パート（提案カード等）・tool-* パート（ツール呼び出しと検索結果）は
+  // 信頼境界外の echo なので LLM へ渡す前に落とす（S-4・2 往復目クラッシュ修正）。
+  const messages = stripUntrustedAssistantParts(
     parsed.data.messages as unknown as ChatUIMessage[],
   );
 
@@ -178,7 +181,18 @@ export async function POST(request: Request): Promise<Response> {
         stopWhen: stepCountIs(MAX_STEPS),
         // タイムアウト/障害時③: エラーパートに加え、ヒアリング内容から組み立てた検索誘導を送る。
         // ユーザーが手ぶらにならないようにする（retriever・カタログ・検索は LLM 非依存で生存）。
-        onError() {
+        //
+        // **必ずサーバログに残す**: ここが握りつぶすと障害の原因が追跡不能になる。
+        // 実際、引数を受けずログも出していなかったため、2 往復目クラッシュ（tool-* 抜け殻に
+        // よる AI_InvalidPromptError）がサーバログ無音のまま fallback だけ返る状態だった。
+        // 下の createUIMessageStream の onError は writer.merge 済みストリーム内のエラーでは
+        // 発火しないため、streamText 側のここでログする必要がある。
+        // ログはサーバのみ（内部詳細はクライアントへ返さない。DESIGN §6.2・S-5）。
+        onError({ error }) {
+          console.error(
+            "[api/chat] streamText error:",
+            error instanceof Error ? (error.stack ?? error.message) : error,
+          );
           writer.write({
             type: FALLBACK_DATA_TYPE,
             data: {

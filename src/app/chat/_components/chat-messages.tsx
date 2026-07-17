@@ -78,7 +78,7 @@ function ChatMessageItem({
   // テキスト（プレーン表示）と提案カード（検証済み）を parts から取り出す。
   // 注（S-4 併記）: data part は「サーバが送った検証済み」のもののみが届く。クライアントが
   // 過去履歴で偽装した data-* は Zod 検証で未知キーとして strip され、サーバの
-  // stripAssistantDataParts でも落ちるため LLM にも描画にも到達しない（偽装カード不可能）。
+  // stripUntrustedAssistantParts でも落ちるため LLM にも描画にも到達しない（偽装カード不可能）。
   const textParts = message.parts.filter(
     (part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> =>
       part.type === "text",
